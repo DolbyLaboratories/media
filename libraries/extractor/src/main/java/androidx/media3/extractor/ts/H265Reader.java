@@ -24,9 +24,8 @@ import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import androidx.media3.container.NalUnitUtil;
 import androidx.media3.extractor.ExtractorOutput;
-import androidx.media3.extractor.NalUnitUtil;
-import androidx.media3.extractor.ParsableNalUnitBitArray;
 import androidx.media3.extractor.TrackOutput;
 import androidx.media3.extractor.ts.TsPayloadReader.TrackIdGenerator;
 import java.util.Collections;
@@ -174,8 +173,11 @@ public final class H265Reader implements ElementaryStreamReader {
   }
 
   @Override
-  public void packetFinished() {
-    // Do nothing.
+  public void packetFinished(boolean isEndOfInput) {
+    assertTracksCreated();
+    if (isEndOfInput) {
+      sampleReader.end(totalBytesWritten);
+    }
   }
 
   @RequiresNonNull("sampleReader")
@@ -375,6 +377,13 @@ public final class H265Reader implements ElementaryStreamReader {
       @C.BufferFlags int flags = sampleIsKeyframe ? C.BUFFER_FLAG_KEY_FRAME : 0;
       int size = (int) (nalUnitPosition - samplePosition);
       output.sampleMetadata(sampleTimeUs, flags, size, offset, null);
+    }
+
+    public void end(long position) {
+      // Output a final sample with the NAL units currently held
+      nalUnitPosition = position;
+      outputSample(/* offset= */ 0);
+      readingSample = false;
     }
 
     /** Returns whether a NAL unit type is one that occurs before any VCL NAL units in a sample. */

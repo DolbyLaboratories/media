@@ -18,14 +18,16 @@ package androidx.media3.session;
 import static android.support.v4.media.session.MediaSessionCompat.FLAG_HANDLES_QUEUE_COMMANDS;
 import static androidx.media.utils.MediaConstants.BROWSER_ROOT_HINTS_KEY_ROOT_CHILDREN_SUPPORTED_FLAGS;
 import static androidx.media3.common.Player.COMMAND_ADJUST_DEVICE_VOLUME;
+import static androidx.media3.common.Player.COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS;
 import static androidx.media3.common.Player.COMMAND_CHANGE_MEDIA_ITEMS;
 import static androidx.media3.common.Player.COMMAND_GET_AUDIO_ATTRIBUTES;
 import static androidx.media3.common.Player.COMMAND_GET_CURRENT_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_GET_DEVICE_VOLUME;
-import static androidx.media3.common.Player.COMMAND_GET_MEDIA_ITEMS_METADATA;
+import static androidx.media3.common.Player.COMMAND_GET_METADATA;
 import static androidx.media3.common.Player.COMMAND_GET_TIMELINE;
 import static androidx.media3.common.Player.COMMAND_PLAY_PAUSE;
 import static androidx.media3.common.Player.COMMAND_PREPARE;
+import static androidx.media3.common.Player.COMMAND_RELEASE;
 import static androidx.media3.common.Player.COMMAND_SEEK_BACK;
 import static androidx.media3.common.Player.COMMAND_SEEK_FORWARD;
 import static androidx.media3.common.Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM;
@@ -35,6 +37,7 @@ import static androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_SET_DEVICE_VOLUME;
+import static androidx.media3.common.Player.COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS;
 import static androidx.media3.common.Player.COMMAND_SET_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_SET_REPEAT_MODE;
 import static androidx.media3.common.Player.COMMAND_SET_SHUFFLE_MODE;
@@ -90,6 +93,7 @@ import androidx.media3.common.Timeline;
 import androidx.media3.common.Timeline.Period;
 import androidx.media3.common.Timeline.Window;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaLibraryService.LibraryParams;
 import androidx.media3.session.PlayerInfo.BundlingExclusions;
@@ -101,12 +105,12 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeoutException;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 
 /* package */ final class MediaUtils {
 
   public static final String TAG = "MediaUtils";
   public static final int TRANSACTION_SIZE_LIMIT_IN_BYTES = 256 * 1024; // 256KB
+
   /** Constant to identify whether two calculated positions are considered as same */
   public static final long POSITION_DIFF_TOLERANCE_MS = 100;
 
@@ -316,6 +320,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   }
 
   /** Converts a {@link MediaItem} to a {@link MediaDescriptionCompat} */
+  @SuppressWarnings("deprecation") // Converting deprecated fields.
   public static MediaDescriptionCompat convertToMediaDescriptionCompat(
       MediaItem item, @Nullable Bitmap artworkBitmap) {
     MediaDescriptionCompat.Builder builder =
@@ -371,6 +376,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
         descriptionCompat, ratingType, /* browsable= */ false, /* playable= */ true);
   }
 
+  @SuppressWarnings("deprecation") // Populating deprecated fields.
   private static MediaMetadata convertToMediaMetadata(
       @Nullable MediaDescriptionCompat descriptionCompat,
       @RatingCompat.Style int ratingType,
@@ -424,6 +430,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   }
 
   /** Creates {@link MediaMetadata} from the {@link MediaMetadataCompat} and rating type. */
+  @SuppressWarnings("deprecation") // Populating deprecated fields.
   public static MediaMetadata convertToMediaMetadata(
       @Nullable MediaMetadataCompat metadataCompat, @RatingCompat.Style int ratingType) {
     if (metadataCompat == null) {
@@ -546,6 +553,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
    *     duration should be included.
    * @return An instance of the legacy {@link MediaMetadataCompat}.
    */
+  @SuppressWarnings("deprecation") // Converting deprecated fields.
   public static MediaMetadataCompat convertToMediaMetadataCompat(
       MediaMetadata metadata,
       String mediaId,
@@ -628,6 +636,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     return builder.build();
   }
 
+  @SuppressWarnings("deprecation") // Converting to deprecated constants.
   @MediaMetadata.FolderType
   private static int convertToFolderType(long extraBtFolderType) {
     if (extraBtFolderType == MediaDescriptionCompat.BT_FOLDER_TYPE_MIXED) {
@@ -649,6 +658,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
     }
   }
 
+  @SuppressWarnings("deprecation") // Converting from deprecated constants.
   private static long convertToExtraBtFolderType(@MediaMetadata.FolderType int folderType) {
     switch (folderType) {
       case MediaMetadata.FOLDER_TYPE_MIXED:
@@ -805,8 +815,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   }
 
   /** Converts a {@link PlaybackStateCompat} to {@link Player.State} */
-  @Player.State
-  public static int convertToPlaybackState(
+  public static @Player.State int convertToPlaybackState(
       @Nullable PlaybackStateCompat playbackStateCompat,
       @Nullable MediaMetadataCompat currentMediaMetadata,
       long timeDiffMs) {
@@ -951,8 +960,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
   }
 
   /** Converts {@link PlaybackStateCompat.RepeatMode} to {@link Player.RepeatMode}. */
-  @Player.RepeatMode
-  public static int convertToRepeatMode(
+  public static @Player.RepeatMode int convertToRepeatMode(
       @PlaybackStateCompat.RepeatMode int playbackStateCompatRepeatMode) {
     switch (playbackStateCompatRepeatMode) {
       case PlaybackStateCompat.REPEAT_MODE_INVALID:
@@ -964,8 +972,12 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       case PlaybackStateCompat.REPEAT_MODE_GROUP:
         return Player.REPEAT_MODE_ALL;
       default:
-        throw new IllegalArgumentException(
-            "Unrecognized PlaybackStateCompat.RepeatMode: " + playbackStateCompatRepeatMode);
+        Log.w(
+            TAG,
+            "Unrecognized PlaybackStateCompat.RepeatMode: "
+                + playbackStateCompatRepeatMode
+                + " was converted to `Player.REPEAT_MODE_OFF`");
+        return Player.REPEAT_MODE_OFF;
     }
   }
 
@@ -980,7 +992,12 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       case Player.REPEAT_MODE_ALL:
         return PlaybackStateCompat.REPEAT_MODE_ALL;
       default:
-        throw new IllegalArgumentException("Unrecognized RepeatMode: " + repeatMode);
+        Log.w(
+            TAG,
+            "Unrecognized RepeatMode: "
+                + repeatMode
+                + " was converted to `PlaybackStateCompat.REPEAT_MODE_NONE`");
+        return PlaybackStateCompat.REPEAT_MODE_NONE;
     }
   }
 
@@ -1087,6 +1104,7 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
    * @param isSessionReady Whether the session compat is ready.
    * @return The converted player commands.
    */
+  @SuppressWarnings("deprecation") // Backwards compatibility with old volume commands
   public static Player.Commands convertToPlayerCommands(
       @Nullable PlaybackStateCompat playbackStateCompat,
       int volumeControlType,
@@ -1134,16 +1152,22 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       playerCommandsBuilder.add(COMMAND_STOP);
     }
     if (volumeControlType == VolumeProviderCompat.VOLUME_CONTROL_RELATIVE) {
-      playerCommandsBuilder.add(COMMAND_ADJUST_DEVICE_VOLUME);
+      playerCommandsBuilder.addAll(
+          COMMAND_ADJUST_DEVICE_VOLUME, COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS);
     } else if (volumeControlType == VolumeProviderCompat.VOLUME_CONTROL_ABSOLUTE) {
-      playerCommandsBuilder.addAll(COMMAND_ADJUST_DEVICE_VOLUME, COMMAND_SET_DEVICE_VOLUME);
+      playerCommandsBuilder.addAll(
+          COMMAND_ADJUST_DEVICE_VOLUME,
+          COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
+          COMMAND_SET_DEVICE_VOLUME,
+          COMMAND_SET_DEVICE_VOLUME_WITH_FLAGS);
     }
     playerCommandsBuilder.addAll(
         COMMAND_GET_DEVICE_VOLUME,
         COMMAND_GET_TIMELINE,
-        COMMAND_GET_MEDIA_ITEMS_METADATA,
+        COMMAND_GET_METADATA,
         COMMAND_GET_CURRENT_MEDIA_ITEM,
-        COMMAND_GET_AUDIO_ATTRIBUTES);
+        COMMAND_GET_AUDIO_ATTRIBUTES,
+        COMMAND_RELEASE);
     if ((sessionFlags & FLAG_HANDLES_QUEUE_COMMANDS) != 0) {
       playerCommandsBuilder.add(COMMAND_CHANGE_MEDIA_ITEMS);
       if (hasAction(actions, PlaybackStateCompat.ACTION_SKIP_TO_QUEUE_ITEM)) {
@@ -1315,17 +1339,19 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
 
   /** Converts {@link MediaControllerCompat.PlaybackInfo} to {@link DeviceInfo}. */
   public static DeviceInfo convertToDeviceInfo(
-      @Nullable MediaControllerCompat.PlaybackInfo playbackInfoCompat) {
+      @Nullable MediaControllerCompat.PlaybackInfo playbackInfoCompat,
+      @Nullable String routingControllerId) {
     if (playbackInfoCompat == null) {
       return DeviceInfo.UNKNOWN;
     }
-    return new DeviceInfo(
-        playbackInfoCompat.getPlaybackType()
-                == MediaControllerCompat.PlaybackInfo.PLAYBACK_TYPE_REMOTE
-            ? DeviceInfo.PLAYBACK_TYPE_REMOTE
-            : DeviceInfo.PLAYBACK_TYPE_LOCAL,
-        /* minVolume= */ 0,
-        playbackInfoCompat.getMaxVolume());
+    return new DeviceInfo.Builder(
+            playbackInfoCompat.getPlaybackType()
+                    == MediaControllerCompat.PlaybackInfo.PLAYBACK_TYPE_REMOTE
+                ? DeviceInfo.PLAYBACK_TYPE_REMOTE
+                : DeviceInfo.PLAYBACK_TYPE_LOCAL)
+        .setMaxVolume(playbackInfoCompat.getMaxVolume())
+        .setRoutingControllerId(routingControllerId)
+        .build();
   }
 
   /** Converts {@link MediaControllerCompat.PlaybackInfo} to device volume. */
@@ -1376,9 +1402,9 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
    * previousPlayerInfo} and taking into account the passed available commands.
    *
    * @param oldPlayerInfo The old {@link PlayerInfo}.
-   * @param oldBundlingExclusions The bundling exlusions in the old {@link PlayerInfo}.
+   * @param oldBundlingExclusions The bundling exclusions in the old {@link PlayerInfo}.
    * @param newPlayerInfo The new {@link PlayerInfo}.
-   * @param newBundlingExclusions The bundling exlusions in the new {@link PlayerInfo}.
+   * @param newBundlingExclusions The bundling exclusions in the new {@link PlayerInfo}.
    * @param availablePlayerCommands The available commands to take into account when merging.
    * @return A pair with the resulting {@link PlayerInfo} and {@link BundlingExclusions}.
    */

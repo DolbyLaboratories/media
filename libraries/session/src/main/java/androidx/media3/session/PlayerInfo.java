@@ -20,6 +20,7 @@ import static androidx.media3.common.Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT;
 import static androidx.media3.common.Player.PLAYBACK_SUPPRESSION_REASON_NONE;
 import static androidx.media3.common.Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST;
 import static androidx.media3.common.Player.STATE_IDLE;
+import static androidx.media3.common.Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED;
 
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -65,8 +66,10 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     public static final BundlingExclusions NONE =
         new BundlingExclusions(
             /* isTimelineExcluded= */ false, /* areCurrentTracksExcluded= */ false);
+
     /** Whether the {@linkplain PlayerInfo#timeline timeline} is excluded. */
     public final boolean isTimelineExcluded;
+
     /** Whether the {@linkplain PlayerInfo#currentTracks current tracks} are excluded. */
     public final boolean areCurrentTracksExcluded;
 
@@ -80,6 +83,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
     private static final String FIELD_IS_TIMELINE_EXCLUDED = Util.intToStringMaxRadix(0);
     private static final String FIELD_ARE_CURRENT_TRACKS_EXCLUDED = Util.intToStringMaxRadix(1);
+
     // Next field key = 2
 
     @UnstableApi
@@ -119,15 +123,16 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
   public static class Builder {
 
     @Nullable private PlaybackException playerError;
-    @Player.MediaItemTransitionReason private int mediaItemTransitionReason;
+    private @Player.MediaItemTransitionReason int mediaItemTransitionReason;
     private SessionPositionInfo sessionPositionInfo;
     private PositionInfo oldPositionInfo;
     private PositionInfo newPositionInfo;
-    @Player.DiscontinuityReason private int discontinuityReason;
+    private @Player.DiscontinuityReason int discontinuityReason;
     private PlaybackParameters playbackParameters;
-    @Player.RepeatMode private int repeatMode;
+    private @Player.RepeatMode int repeatMode;
     private boolean shuffleModeEnabled;
     private Timeline timeline;
+    private @Player.TimelineChangeReason int timelineChangeReason;
     private VideoSize videoSize;
     private MediaMetadata playlistMetadata;
     private float volume;
@@ -137,11 +142,11 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     private int deviceVolume;
     private boolean deviceMuted;
     private boolean playWhenReady;
-    @Player.PlayWhenReadyChangeReason private int playWhenReadyChangedReason;
+    private @Player.PlayWhenReadyChangeReason int playWhenReadyChangeReason;
     private boolean isPlaying;
     private boolean isLoading;
-    @PlaybackSuppressionReason private int playbackSuppressionReason;
-    @State private int playbackState;
+    private @PlaybackSuppressionReason int playbackSuppressionReason;
+    private @State int playbackState;
     private MediaMetadata mediaMetadata;
     private long seekBackIncrementMs;
     private long seekForwardIncrementMs;
@@ -160,6 +165,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
       repeatMode = playerInfo.repeatMode;
       shuffleModeEnabled = playerInfo.shuffleModeEnabled;
       timeline = playerInfo.timeline;
+      timelineChangeReason = playerInfo.timelineChangeReason;
       videoSize = playerInfo.videoSize;
       playlistMetadata = playerInfo.playlistMetadata;
       volume = playerInfo.volume;
@@ -169,7 +175,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
       deviceVolume = playerInfo.deviceVolume;
       deviceMuted = playerInfo.deviceMuted;
       playWhenReady = playerInfo.playWhenReady;
-      playWhenReadyChangedReason = playerInfo.playWhenReadyChangedReason;
+      playWhenReadyChangeReason = playerInfo.playWhenReadyChangeReason;
       isPlaying = playerInfo.isPlaying;
       isLoading = playerInfo.isLoading;
       playbackSuppressionReason = playerInfo.playbackSuppressionReason;
@@ -244,6 +250,12 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     }
 
     @CanIgnoreReturnValue
+    public Builder setTimelineChangeReason(@Player.TimelineChangeReason int timelineChangeReason) {
+      this.timelineChangeReason = timelineChangeReason;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
     public Builder setVideoSize(VideoSize videoSize) {
       this.videoSize = videoSize;
       return this;
@@ -298,9 +310,9 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     }
 
     @CanIgnoreReturnValue
-    public Builder setPlayWhenReadyChangedReason(
-        @Player.PlayWhenReadyChangeReason int playWhenReadyChangedReason) {
-      this.playWhenReadyChangedReason = playWhenReadyChangedReason;
+    public Builder setPlayWhenReadyChangeReason(
+        @Player.PlayWhenReadyChangeReason int playWhenReadyChangeReason) {
+      this.playWhenReadyChangeReason = playWhenReadyChangeReason;
       return this;
     }
 
@@ -381,6 +393,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
           shuffleModeEnabled,
           videoSize,
           timeline,
+          timelineChangeReason,
           playlistMetadata,
           volume,
           audioAttributes,
@@ -389,7 +402,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
           deviceVolume,
           deviceMuted,
           playWhenReady,
-          playWhenReadyChangedReason,
+          playWhenReadyChangeReason,
           playbackSuppressionReason,
           playbackState,
           isPlaying,
@@ -414,6 +427,9 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
   public static final int PLAY_WHEN_READY_CHANGE_REASON_DEFAULT =
       PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST;
 
+  /** Default timeline change reason. */
+  public static final int TIMELINE_CHANGE_REASON_DEFAULT = TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED;
+
   public static final PlayerInfo DEFAULT =
       new PlayerInfo(
           /* playerError= */ null,
@@ -427,6 +443,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
           /* shuffleModeEnabled= */ false,
           VideoSize.UNKNOWN,
           Timeline.EMPTY,
+          TIMELINE_CHANGE_REASON_DEFAULT,
           MediaMetadata.EMPTY,
           /* volume= */ 1f,
           AudioAttributes.DEFAULT,
@@ -434,7 +451,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
           DeviceInfo.UNKNOWN,
           /* deviceVolume= */ 0,
           /* deviceMuted= */ false,
-          /* playWhenReady = */ false,
+          /* playWhenReady= */ false,
           PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST,
           PLAYBACK_SUPPRESSION_REASON_NONE,
           STATE_IDLE,
@@ -449,7 +466,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
   @Nullable public final PlaybackException playerError;
 
-  @Player.MediaItemTransitionReason public final int mediaItemTransitionReason;
+  public final @Player.MediaItemTransitionReason int mediaItemTransitionReason;
 
   public final SessionPositionInfo sessionPositionInfo;
 
@@ -457,15 +474,17 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
   public final PositionInfo newPositionInfo;
 
-  @Player.DiscontinuityReason public final int discontinuityReason;
+  public final @Player.DiscontinuityReason int discontinuityReason;
 
   public final PlaybackParameters playbackParameters;
 
-  @Player.RepeatMode public final int repeatMode;
+  public final @Player.RepeatMode int repeatMode;
 
   public final boolean shuffleModeEnabled;
 
   public final Timeline timeline;
+
+  public final @Player.TimelineChangeReason int timelineChangeReason;
 
   public final VideoSize videoSize;
 
@@ -485,15 +504,15 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
   public final boolean playWhenReady;
 
-  public final int playWhenReadyChangedReason;
+  public final int playWhenReadyChangeReason;
 
   public final boolean isPlaying;
 
   public final boolean isLoading;
 
-  @Player.PlaybackSuppressionReason public final int playbackSuppressionReason;
+  public final @Player.PlaybackSuppressionReason int playbackSuppressionReason;
 
-  @Player.State public final int playbackState;
+  public final @Player.State int playbackState;
 
   public final MediaMetadata mediaMetadata;
 
@@ -510,11 +529,11 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
   @CheckResult
   public PlayerInfo copyWithPlayWhenReady(
       boolean playWhenReady,
-      @Player.PlayWhenReadyChangeReason int playWhenReadyChangedReason,
+      @Player.PlayWhenReadyChangeReason int playWhenReadyChangeReason,
       @Player.PlaybackSuppressionReason int playbackSuppressionReason) {
     return new Builder(this)
         .setPlayWhenReady(playWhenReady)
-        .setPlayWhenReadyChangedReason(playWhenReadyChangedReason)
+        .setPlayWhenReadyChangeReason(playWhenReadyChangeReason)
         .setPlaybackSuppressionReason(playbackSuppressionReason)
         .setIsPlaying(isPlaying(playbackState, playWhenReady, playbackSuppressionReason))
         .build();
@@ -580,17 +599,24 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
   @CheckResult
   public PlayerInfo copyWithTimelineAndSessionPositionInfo(
-      Timeline timeline, SessionPositionInfo sessionPositionInfo) {
+      Timeline timeline,
+      SessionPositionInfo sessionPositionInfo,
+      @Player.TimelineChangeReason int timelineChangeReason) {
     return new Builder(this)
         .setTimeline(timeline)
         .setSessionPositionInfo(sessionPositionInfo)
+        .setTimelineChangeReason(timelineChangeReason)
         .build();
   }
 
   @CheckResult
-  public PlayerInfo copyWithTimelineAndMediaItemIndex(Timeline timeline, int mediaItemIndex) {
+  public PlayerInfo copyWithTimelineAndMediaItemIndex(
+      Timeline timeline,
+      int mediaItemIndex,
+      @Player.TimelineChangeReason int timelineChangeReason) {
     return new Builder(this)
         .setTimeline(timeline)
+        .setTimelineChangeReason(timelineChangeReason)
         .setSessionPositionInfo(
             new SessionPositionInfo(
                 new PositionInfo(
@@ -696,6 +722,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
       boolean shuffleModeEnabled,
       VideoSize videoSize,
       Timeline timeline,
+      @Player.TimelineChangeReason int timelineChangeReason,
       MediaMetadata playlistMetadata,
       float volume,
       AudioAttributes audioAttributes,
@@ -704,7 +731,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
       int deviceVolume,
       boolean deviceMuted,
       boolean playWhenReady,
-      @Player.PlayWhenReadyChangeReason int playWhenReadyChangedReason,
+      @Player.PlayWhenReadyChangeReason int playWhenReadyChangeReason,
       @Player.PlaybackSuppressionReason int playbackSuppressionReason,
       @Player.State int playbackState,
       boolean isPlaying,
@@ -726,6 +753,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     this.shuffleModeEnabled = shuffleModeEnabled;
     this.videoSize = videoSize;
     this.timeline = timeline;
+    this.timelineChangeReason = timelineChangeReason;
     this.playlistMetadata = playlistMetadata;
     this.volume = volume;
     this.audioAttributes = audioAttributes;
@@ -734,7 +762,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     this.deviceVolume = deviceVolume;
     this.deviceMuted = deviceMuted;
     this.playWhenReady = playWhenReady;
-    this.playWhenReadyChangedReason = playWhenReadyChangedReason;
+    this.playWhenReadyChangeReason = playWhenReadyChangeReason;
     this.playbackSuppressionReason = playbackSuppressionReason;
     this.playbackState = playbackState;
     this.isPlaying = isPlaying;
@@ -778,7 +806,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
   private static final String FIELD_DEVICE_VOLUME = Util.intToStringMaxRadix(10);
   private static final String FIELD_DEVICE_MUTED = Util.intToStringMaxRadix(11);
   private static final String FIELD_PLAY_WHEN_READY = Util.intToStringMaxRadix(12);
-  private static final String FIELD_PLAY_WHEN_READY_CHANGED_REASON = Util.intToStringMaxRadix(13);
+  private static final String FIELD_PLAY_WHEN_READY_CHANGE_REASON = Util.intToStringMaxRadix(13);
   private static final String FIELD_PLAYBACK_SUPPRESSION_REASON = Util.intToStringMaxRadix(14);
   private static final String FIELD_PLAYBACK_STATE = Util.intToStringMaxRadix(15);
   private static final String FIELD_IS_PLAYING = Util.intToStringMaxRadix(16);
@@ -796,7 +824,9 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
   private static final String FIELD_MAX_SEEK_TO_PREVIOUS_POSITION_MS = Util.intToStringMaxRadix(28);
   private static final String FIELD_TRACK_SELECTION_PARAMETERS = Util.intToStringMaxRadix(29);
   private static final String FIELD_CURRENT_TRACKS = Util.intToStringMaxRadix(30);
-  // Next field key = 31
+  private static final String FIELD_TIMELINE_CHANGE_REASON = Util.intToStringMaxRadix(31);
+
+  // Next field key = 32
 
   public Bundle toBundle(
       Player.Commands availableCommands, boolean excludeTimeline, boolean excludeTracks) {
@@ -828,8 +858,9 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
           FIELD_TIMELINE,
           timeline.toBundleWithOneWindowOnly(sessionPositionInfo.positionInfo.mediaItemIndex));
     }
+    bundle.putInt(FIELD_TIMELINE_CHANGE_REASON, timelineChangeReason);
     bundle.putBundle(FIELD_VIDEO_SIZE, videoSize.toBundle());
-    if (availableCommands.contains(Player.COMMAND_GET_MEDIA_ITEMS_METADATA)) {
+    if (availableCommands.contains(Player.COMMAND_GET_METADATA)) {
       bundle.putBundle(FIELD_PLAYLIST_METADATA, playlistMetadata.toBundle());
     }
     if (availableCommands.contains(Player.COMMAND_GET_VOLUME)) {
@@ -851,7 +882,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     bundle.putInt(FIELD_PLAYBACK_STATE, playbackState);
     bundle.putBoolean(FIELD_IS_PLAYING, isPlaying);
     bundle.putBoolean(FIELD_IS_LOADING, isLoading);
-    if (availableCommands.contains(Player.COMMAND_GET_MEDIA_ITEMS_METADATA)) {
+    if (availableCommands.contains(Player.COMMAND_GET_METADATA)) {
       bundle.putBundle(FIELD_MEDIA_METADATA, mediaMetadata.toBundle());
     }
     bundle.putLong(FIELD_SEEK_BACK_INCREMENT_MS, seekBackIncrementMs);
@@ -911,6 +942,9 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     @Nullable Bundle timelineBundle = bundle.getBundle(FIELD_TIMELINE);
     Timeline timeline =
         timelineBundle == null ? Timeline.EMPTY : Timeline.CREATOR.fromBundle(timelineBundle);
+    int timelineChangeReason =
+        bundle.getInt(
+            FIELD_TIMELINE_CHANGE_REASON, /* defaultValue= */ TIMELINE_CHANGE_REASON_DEFAULT);
     @Nullable Bundle videoSizeBundle = bundle.getBundle(FIELD_VIDEO_SIZE);
     VideoSize videoSize =
         videoSizeBundle == null ? VideoSize.UNKNOWN : VideoSize.CREATOR.fromBundle(videoSizeBundle);
@@ -938,9 +972,9 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
     int deviceVolume = bundle.getInt(FIELD_DEVICE_VOLUME, /* defaultValue= */ 0);
     boolean deviceMuted = bundle.getBoolean(FIELD_DEVICE_MUTED, /* defaultValue= */ false);
     boolean playWhenReady = bundle.getBoolean(FIELD_PLAY_WHEN_READY, /* defaultValue= */ false);
-    int playWhenReadyChangedReason =
+    int playWhenReadyChangeReason =
         bundle.getInt(
-            FIELD_PLAY_WHEN_READY_CHANGED_REASON,
+            FIELD_PLAY_WHEN_READY_CHANGE_REASON,
             /* defaultValue= */ PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST);
     @Player.PlaybackSuppressionReason
     int playbackSuppressionReason =
@@ -982,6 +1016,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
         shuffleModeEnabled,
         videoSize,
         timeline,
+        timelineChangeReason,
         playlistMetadata,
         volume,
         audioAttributes,
@@ -990,7 +1025,7 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
         deviceVolume,
         deviceMuted,
         playWhenReady,
-        playWhenReadyChangedReason,
+        playWhenReadyChangeReason,
         playbackSuppressionReason,
         playbackState,
         isPlaying,

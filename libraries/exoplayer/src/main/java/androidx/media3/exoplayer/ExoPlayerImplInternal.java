@@ -17,6 +17,7 @@ package androidx.media3.exoplayer;
 
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Util.castNonNull;
+import static androidx.media3.common.util.Util.msToUs;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -25,7 +26,6 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Message;
 import android.os.Process;
-import android.os.SystemClock;
 import android.util.Pair;
 import androidx.annotation.CheckResult;
 import androidx.annotation.Nullable;
@@ -33,6 +33,7 @@ import androidx.media3.common.AdPlaybackState;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.IllegalSeekPositionException;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.Metadata;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.PlaybackException;
@@ -165,9 +166,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
   private static final int MSG_SET_PAUSE_AT_END_OF_WINDOW = 23;
   private static final int MSG_SET_OFFLOAD_SCHEDULING_ENABLED = 24;
   private static final int MSG_ATTEMPT_RENDERER_ERROR_RECOVERY = 25;
+  private static final int MSG_RENDERER_CAPABILITIES_CHANGED = 26;
+  private static final int MSG_UPDATE_MEDIA_SOURCES_WITH_MEDIA_ITEMS = 27;
 
   private static final int ACTIVE_INTERVAL_MS = 10;
   private static final int IDLE_INTERVAL_MS = 1000;
+
   /**
    * Duration for which the player needs to appear stuck before the playback is failed on the
    * assumption that no further progress will be made. To appear stuck, the player's renderers must
@@ -175,6 +179,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
    * to load it.
    */
   private static final long PLAYBACK_STUCK_AFTER_MS = 4000;
+
   /**
    * Threshold under which a buffered duration is assumed to be empty. We cannot use zero to account
    * for buffers currently hold but not played by the renderer.
@@ -268,9 +273,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
     playbackInfo = PlaybackInfo.createDummy(emptyTrackSelectorResult);
     playbackInfoUpdate = new PlaybackInfoUpdate(playbackInfo);
     rendererCapabilities = new RendererCapabilities[renderers.length];
+    @Nullable
+    RendererCapabilities.Listener rendererCapabilitiesListener =
+        trackSelector.getRendererCapabilitiesListener();
     for (int i = 0; i < renderers.length; i++) {
-      renderers[i].init(/* index= */ i, playerId);
+      renderers[i].init(/* index= */ i, playerId, clock);
       rendererCapabilities[i] = renderers[i].getCapabilities();
+      if (rendererCapabilitiesListener != null) {
+        rendererCapabilities[i].setListener(rendererCapabilitiesListener);
+      }
     }
     mediaClock = new DefaultMediaClock(this, clock);
     pendingMessages = new ArrayList<>();
@@ -398,6 +409,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
     handler.obtainMessage(MSG_SET_SHUFFLE_ORDER, shuffleOrder).sendToTarget();
   }
 
+  public void updateMediaSourcesWithMediaItems(
+      int fromIndex, int toIndex, List<MediaItem> mediaItems) {
+    handler
+        .obtainMessage(MSG_UPDATE_MEDIA_SOURCES_WITH_MEDIA_ITEMS, fromIndex, toIndex, mediaItems)
+        .sendToTarget();
+  }
+
   @Override
   public synchronized void sendMessage(PlayerMessage message) {
     if (released || !playbackLooper.getThread().isAlive()) {
@@ -475,6 +493,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
     handler.sendEmptyMessage(MSG_TRACK_SELECTION_INVALIDATED);
   }
 
+  @Override
+  public void onRendererCapabilitiesChanged(Renderer renderer) {
+    handler.sendEmptyMessage(MSG_RENDERER_CAPABILITIES_CHANGED);
+  }
+
   // DefaultMediaClock.PlaybackParametersListener implementation.
 
   @Override
@@ -486,6 +509,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
   // Handler.Callback implementation.
 
+  @SuppressWarnings("unchecked") // Casting message payload types.
   @Override
   public boolean handleMessage(Message msg) {
     try {
@@ -570,6 +594,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
         case MSG_ATTEMPT_RENDERER_ERROR_RECOVERY:
           attemptRendererErrorRecovery();
           break;
+        case MSG_RENDERER_CAPABILITIES_CHANGED:
+          reselectTracksInternalAndSeek();
+          break;
+        case MSG_UPDATE_MEDIA_SOURCES_WITH_MEDIA_ITEMS:
+          updateMediaSourcesWithMediaItemsInternal(msg.arg1, msg.arg2, (List<MediaItem>) msg.obj);
+          break;
         case MSG_RELEASE:
           releaseInternal();
           // Return immediately to not send playback info updates after release.
@@ -599,6 +629,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
           e = pendingRecoverableRendererError;
         }
         Log.e(TAG, "Playback error", e);
+        if (e.type == ExoPlaybackException.TYPE_RENDERER
+            && queue.getPlayingPeriod() != queue.getReadingPeriod()) {
+          // We encountered a renderer error while reading ahead. Force-update the playback position
+          // to the failing item to ensure the user-visible error is reported after the transition.
+          while (queue.getPlayingPeriod() != queue.getReadingPeriod()) {
+            queue.advancePlayingPeriod();
+          }
+          MediaPeriodHolder newPlayingPeriodHolder = checkNotNull(queue.getPlayingPeriod());
+          playbackInfo =
+              handlePositionDiscontinuity(
+                  newPlayingPeriodHolder.info.id,
+                  newPlayingPeriodHolder.info.startPositionUs,
+                  newPlayingPeriodHolder.info.requestedContentPositionUs,
+                  /* discontinuityStartPositionUs= */ newPlayingPeriodHolder.info.startPositionUs,
+                  /* reportDiscontinuity= */ true,
+                  Player.DISCONTINUITY_REASON_AUTO_TRANSITION);
+        }
         stopInternal(/* forceResetRenderers= */ true, /* acknowledgeStop= */ false);
         playbackInfo = playbackInfo.copyWithPlaybackError(e);
       }
@@ -776,6 +823,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
     handleMediaSourceListInfoRefreshed(timeline, /* isSourceRefresh= */ false);
   }
 
+  private void updateMediaSourcesWithMediaItemsInternal(
+      int fromIndex, int toIndex, List<MediaItem> mediaItems) throws ExoPlaybackException {
+    playbackInfoUpdate.incrementPendingOperationAcks(/* operationAcks= */ 1);
+    Timeline timeline =
+        mediaSourceList.updateMediaSourcesWithMediaItems(fromIndex, toIndex, mediaItems);
+    handleMediaSourceListInfoRefreshed(timeline, /* isSourceRefresh= */ false);
+  }
+
   private void notifyTrackSelectionPlayWhenReadyChanged(boolean playWhenReady) {
     MediaPeriodHolder periodHolder = queue.getPlayingPeriod();
     while (periodHolder != null) {
@@ -895,7 +950,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
   }
 
   private void attemptRendererErrorRecovery() throws ExoPlaybackException {
-    seekToCurrentPosition(/* sendDiscontinuity= */ true);
+    reselectTracksInternalAndSeek();
   }
 
   private void updatePlaybackPositions() throws ExoPlaybackException {
@@ -910,6 +965,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
             ? playingPeriodHolder.mediaPeriod.readDiscontinuity()
             : C.TIME_UNSET;
     if (discontinuityPositionUs != C.TIME_UNSET) {
+      if (!playingPeriodHolder.isFullyBuffered()) {
+        // The discontinuity caused the period to not be fully buffered. Continue loading from this
+        // period again and discard all other periods we already started loading.
+        queue.removeAfter(playingPeriodHolder);
+        handleLoadingMediaPeriodChanged(/* loadingTrackSelectionChanged= */ false);
+        maybeContinueLoading();
+      }
       resetRendererPosition(discontinuityPositionUs);
       // A MediaPeriod may report a discontinuity at the current playback position to ensure the
       // renderers are flushed. Only report the discontinuity externally if the position changed.
@@ -929,7 +991,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
               /* isReadingAhead= */ playingPeriodHolder != queue.getReadingPeriod());
       long periodPositionUs = playingPeriodHolder.toPeriodTime(rendererPositionUs);
       maybeTriggerPendingMessages(playbackInfo.positionUs, periodPositionUs);
-      playbackInfo.positionUs = periodPositionUs;
+      playbackInfo.updatePositionUs(periodPositionUs);
     }
 
     // Update the buffered position and total buffered duration.
@@ -1001,7 +1063,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
     boolean renderersEnded = true;
     boolean renderersAllowPlayback = true;
     if (playingPeriodHolder.prepared) {
-      long rendererPositionElapsedRealtimeUs = SystemClock.elapsedRealtime() * 1000;
+      long rendererPositionElapsedRealtimeUs = msToUs(clock.elapsedRealtime());
       playingPeriodHolder.mediaPeriod.discardBuffer(
           playbackInfo.positionUs - backBufferDurationUs, retainBackBufferFromKeyframe);
       for (int i = 0; i < renderers.length; i++) {
@@ -1394,6 +1456,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
         /* resetPosition= */ false,
         /* releaseMediaSourceList= */ true,
         /* resetError= */ false);
+    releaseRenderers();
     loadControl.onReleased();
     setState(Player.STATE_IDLE);
     if (internalPlaybackThread != null) {
@@ -1459,9 +1522,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
     queue.clear();
     shouldContinueLoading = false;
 
+    Timeline timeline = playbackInfo.timeline;
+    if (releaseMediaSourceList && timeline instanceof PlaylistTimeline) {
+      // Wrap the current timeline to make sure the current period is marked as a placeholder to
+      // force resolving the default start position with the next timeline refresh.
+      timeline =
+          ((PlaylistTimeline) playbackInfo.timeline)
+              .copyWithPlaceholderTimeline(mediaSourceList.getShuffleOrder());
+      if (mediaPeriodId.adGroupIndex != C.INDEX_UNSET) {
+        timeline.getPeriodByUid(mediaPeriodId.periodUid, period);
+        if (timeline.getWindow(period.windowIndex, window).isLive()) {
+          // Drop ad metadata to allow live streams to reset the ad playback state. In case the ad
+          // playback state is not reset by the source, the first timeline refresh after
+          // re-preparation will add the ad metadata to the period again.
+          mediaPeriodId =
+              new MediaPeriodId(mediaPeriodId.periodUid, mediaPeriodId.windowSequenceNumber);
+        }
+      }
+    }
     playbackInfo =
         new PlaybackInfo(
-            playbackInfo.timeline,
+            timeline,
             mediaPeriodId,
             requestedContentPositionUs,
             /* discontinuityStartPositionUs= */ startPositionUs,
@@ -1478,6 +1559,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
             /* bufferedPositionUs= */ startPositionUs,
             /* totalBufferedDurationUs= */ 0,
             /* positionUs= */ startPositionUs,
+            /* positionUpdateTimeMs= */ 0,
             /* sleepingForOffload= */ false);
     if (releaseMediaSourceList) {
       mediaSourceList.release();
@@ -1680,6 +1762,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
     enabledRendererCount--;
   }
 
+  private void reselectTracksInternalAndSeek() throws ExoPlaybackException {
+    reselectTracksInternal();
+    seekToCurrentPosition(/* sendDiscontinuity= */ true);
+  }
+
   private void reselectTracksInternal() throws ExoPlaybackException {
     float playbackSpeed = mediaClock.getPlaybackParameters().speed;
     // Reselect tracks on each period in turn, until the selection changes.
@@ -1799,8 +1886,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
       return true;
     }
     // Renderers are ready and we're loading. Ask the LoadControl whether to transition.
+    MediaPeriodHolder playingPeriodHolder = queue.getPlayingPeriod();
     long targetLiveOffsetUs =
-        shouldUseLivePlaybackSpeedControl(playbackInfo.timeline, queue.getPlayingPeriod().info.id)
+        shouldUseLivePlaybackSpeedControl(playbackInfo.timeline, playingPeriodHolder.info.id)
             ? livePlaybackSpeedControl.getTargetLiveOffsetUs()
             : C.TIME_UNSET;
     MediaPeriodHolder loadingHolder = queue.getLoadingPeriod();
@@ -1812,6 +1900,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
     return isBufferedToEnd
         || isAdPendingPreparation
         || loadControl.shouldStartPlayback(
+            playbackInfo.timeline,
+            playingPeriodHolder.info.id,
             getTotalBufferedDurationUs(),
             mediaClock.getPlaybackParameters().speed,
             isRebuffering,
@@ -2182,7 +2272,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
               Player.DISCONTINUITY_REASON_AUTO_TRANSITION);
       resetPendingPauseAtEndOfPeriod();
       updatePlaybackPositions();
+      allowRenderersToRenderStartOfStreams();
       advancedPlayingPeriod = true;
+    }
+  }
+
+  private void allowRenderersToRenderStartOfStreams() {
+    TrackSelectorResult playingTracks = queue.getPlayingPeriod().getTrackSelectorResult();
+    for (int i = 0; i < renderers.length; i++) {
+      if (playingTracks.isRendererEnabled(i)) {
+        renderers[i].enableMayRenderStartOfStream();
+      }
     }
   }
 
@@ -2267,7 +2367,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
     loadingPeriodHolder.handlePrepared(
         mediaClock.getPlaybackParameters().speed, playbackInfo.timeline);
     updateLoadControlTrackSelection(
-        loadingPeriodHolder.getTrackGroups(), loadingPeriodHolder.getTrackSelectorResult());
+        loadingPeriodHolder.info.id,
+        loadingPeriodHolder.getTrackGroups(),
+        loadingPeriodHolder.getTrackSelectorResult());
     if (loadingPeriodHolder == queue.getPlayingPeriod()) {
       // This is the first prepared period, so update the position and the renderers.
       resetRendererPosition(loadingPeriodHolder.info.startPositionUs);
@@ -2528,6 +2630,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
     }
   }
 
+  private void releaseRenderers() {
+    for (int i = 0; i < renderers.length; i++) {
+      rendererCapabilities[i].clearListener();
+      renderers[i].release();
+    }
+  }
+
   private void handleLoadingMediaPeriodChanged(boolean loadingTrackSelectionChanged) {
     MediaPeriodHolder loadingMediaPeriodHolder = queue.getLoadingPeriod();
     MediaPeriodId loadingMediaPeriodId =
@@ -2546,6 +2655,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
         && loadingMediaPeriodHolder != null
         && loadingMediaPeriodHolder.prepared) {
       updateLoadControlTrackSelection(
+          loadingMediaPeriodHolder.info.id,
           loadingMediaPeriodHolder.getTrackGroups(),
           loadingMediaPeriodHolder.getTrackSelectorResult());
     }
@@ -2566,8 +2676,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
   }
 
   private void updateLoadControlTrackSelection(
-      TrackGroupArray trackGroups, TrackSelectorResult trackSelectorResult) {
-    loadControl.onTracksSelected(renderers, trackGroups, trackSelectorResult.selections);
+      MediaPeriodId mediaPeriodId,
+      TrackGroupArray trackGroups,
+      TrackSelectorResult trackSelectorResult) {
+    loadControl.onTracksSelected(
+        playbackInfo.timeline,
+        mediaPeriodId,
+        renderers,
+        trackGroups,
+        trackSelectorResult.selections);
   }
 
   private boolean shouldPlayWhenReady() {

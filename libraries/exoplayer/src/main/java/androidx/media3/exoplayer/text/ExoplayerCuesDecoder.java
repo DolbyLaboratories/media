@@ -24,7 +24,6 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.text.Cue;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.text.CueDecoder;
 import androidx.media3.extractor.text.Subtitle;
@@ -39,7 +38,6 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.List;
 
 /**
  * A {@link SubtitleDecoder} that decodes subtitle samples of type {@link
@@ -117,10 +115,11 @@ public final class ExoplayerCuesDecoder implements SubtitleDecoder {
     if (inputBuffer.isEndOfStream()) {
       outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
     } else {
-      SingleEventSubtitle subtitle =
-          new SingleEventSubtitle(
-              inputBuffer.timeUs, cueDecoder.decode(checkNotNull(inputBuffer.data).array()));
-      outputBuffer.setContent(inputBuffer.timeUs, subtitle, /* subsampleOffsetUs=*/ 0);
+      Subtitle subtitle =
+          new CuesWithTimingSubtitle(
+              ImmutableList.of(
+                  cueDecoder.decode(inputBuffer.timeUs, checkNotNull(inputBuffer.data).array())));
+      outputBuffer.setContent(inputBuffer.timeUs, subtitle, /* subsampleOffsetUs= */ 0);
     }
     inputBuffer.clear();
     inputBufferState = INPUT_BUFFER_AVAILABLE;
@@ -149,36 +148,5 @@ public final class ExoplayerCuesDecoder implements SubtitleDecoder {
     checkArgument(!availableOutputBuffers.contains(outputBuffer));
     outputBuffer.clear();
     availableOutputBuffers.addFirst(outputBuffer);
-  }
-
-  private static final class SingleEventSubtitle implements Subtitle {
-    private final long timeUs;
-    private final ImmutableList<Cue> cues;
-
-    public SingleEventSubtitle(long timeUs, ImmutableList<Cue> cues) {
-      this.timeUs = timeUs;
-      this.cues = cues;
-    }
-
-    @Override
-    public int getNextEventTimeIndex(long timeUs) {
-      return this.timeUs > timeUs ? 0 : C.INDEX_UNSET;
-    }
-
-    @Override
-    public int getEventTimeCount() {
-      return 1;
-    }
-
-    @Override
-    public long getEventTime(int index) {
-      checkArgument(index == 0);
-      return timeUs;
-    }
-
-    @Override
-    public List<Cue> getCues(long timeUs) {
-      return (timeUs >= this.timeUs) ? cues : ImmutableList.of();
-    }
   }
 }

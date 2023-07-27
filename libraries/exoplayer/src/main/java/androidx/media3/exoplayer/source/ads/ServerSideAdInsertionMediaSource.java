@@ -36,6 +36,7 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.StreamKey;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackGroup;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.TransferListener;
@@ -66,7 +67,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /**
@@ -92,8 +92,8 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
      * Called when the content source has refreshed the timeline.
      *
      * <p>If true is returned the source refresh publication is deferred, to wait for an {@link
-     * #setAdPlaybackStates(ImmutableMap)} ad playback state update}. If false is returned, the
-     * source refresh is immediately published.
+     * #setAdPlaybackStates(ImmutableMap, Timeline)} ad playback state update}. If false is
+     * returned, the source refresh is immediately published.
      *
      * <p>Called on the playback thread.
      *
@@ -115,7 +115,6 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
   private Handler playbackHandler;
 
   @Nullable private SharedMediaPeriod lastUsedMediaPeriod;
-  @Nullable private Timeline contentTimeline;
   private ImmutableMap<Object, AdPlaybackState> adPlaybackStates;
 
   /**
@@ -139,8 +138,7 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
 
   /**
    * Sets the map of {@link AdPlaybackState ad playback states} published by this source. The key is
-   * the period UID of a period in the {@link
-   * AdPlaybackStateUpdater#onAdPlaybackStateUpdateRequested(Timeline)} content timeline}.
+   * the period UID of a period in the {@code contentTimeline}.
    *
    * <p>Each period has an {@link AdPlaybackState} that tells where in the period the ad groups
    * start and end. Must only contain server-side inserted ad groups. The number of ad groups and
@@ -151,8 +149,11 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
    * <p>May be called from any thread.
    *
    * @param adPlaybackStates The map of {@link AdPlaybackState} keyed by their period UID.
+   * @param contentTimeline The content timeline containing the periods with the UIDs used as keys
+   *     in the map of playback states.
    */
-  public void setAdPlaybackStates(ImmutableMap<Object, AdPlaybackState> adPlaybackStates) {
+  public void setAdPlaybackStates(
+      ImmutableMap<Object, AdPlaybackState> adPlaybackStates, Timeline contentTimeline) {
     checkArgument(!adPlaybackStates.isEmpty());
     Object adsId = checkNotNull(adPlaybackStates.values().asList().get(0).adsId);
     for (Map.Entry<Object, AdPlaybackState> entry : adPlaybackStates.entrySet()) {
@@ -206,10 +207,8 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
                 }
               }
               this.adPlaybackStates = adPlaybackStates;
-              if (contentTimeline != null) {
-                refreshSourceInfo(
-                    new ServerSideAdInsertionTimeline(contentTimeline, adPlaybackStates));
-              }
+              refreshSourceInfo(
+                  new ServerSideAdInsertionTimeline(contentTimeline, adPlaybackStates));
             });
       }
     }
@@ -218,6 +217,16 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
   @Override
   public MediaItem getMediaItem() {
     return mediaSource.getMediaItem();
+  }
+
+  @Override
+  public boolean canUpdateMediaItem(MediaItem mediaItem) {
+    return mediaSource.canUpdateMediaItem(mediaItem);
+  }
+
+  @Override
+  public void updateMediaItem(MediaItem mediaItem) {
+    mediaSource.updateMediaItem(mediaItem);
   }
 
   @Override
@@ -249,7 +258,6 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
 
   @Override
   public void onSourceInfoRefreshed(MediaSource source, Timeline timeline) {
-    this.contentTimeline = timeline;
     if ((adPlaybackStateUpdater == null
             || !adPlaybackStateUpdater.onAdPlaybackStateUpdateRequested(timeline))
         && !adPlaybackStates.isEmpty()) {
@@ -260,7 +268,6 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
   @Override
   protected void releaseSourceInternal() {
     releaseLastUsedMediaPeriod();
-    contentTimeline = null;
     synchronized (this) {
       playbackHandler = null;
     }
@@ -691,6 +698,9 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
       if (mediaLoadData != null && mediaLoadData.mediaStartTimeMs != C.TIME_UNSET) {
         for (int i = 0; i < mediaPeriods.size(); i++) {
           MediaPeriodImpl mediaPeriod = mediaPeriods.get(i);
+          if (!mediaPeriod.isPrepared) {
+            continue;
+          }
           long startTimeInPeriodUs =
               getMediaPeriodPositionUs(
                   Util.msToUs(mediaLoadData.mediaStartTimeMs),
@@ -709,7 +719,7 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
       mediaPeriod.lastStartPositionUs = positionUs;
       if (hasStartedPreparing) {
         if (isPrepared) {
-          checkNotNull(mediaPeriod.callback).onPrepared(mediaPeriod);
+          mediaPeriod.onPrepared();
         }
         return;
       }
@@ -869,6 +879,7 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
         @SampleStream.ReadFlags int readFlags) {
       @SampleStream.ReadFlags
       int peekingFlags = readFlags | SampleStream.FLAG_PEEK | SampleStream.FLAG_OMIT_SAMPLE_DATA;
+      long bufferedPositionUs = getBufferedPositionUs(mediaPeriod);
       @SampleStream.ReadDataResult
       int result =
           castNonNull(sampleStreams[streamIndex]).readData(formatHolder, buffer, peekingFlags);
@@ -876,7 +887,7 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
           getMediaPeriodPositionUsWithEndOfSourceHandling(mediaPeriod, buffer.timeUs);
       if ((result == C.RESULT_BUFFER_READ && adjustedTimeUs == C.TIME_END_OF_SOURCE)
           || (result == C.RESULT_NOTHING_READ
-              && getBufferedPositionUs(mediaPeriod) == C.TIME_END_OF_SOURCE
+              && bufferedPositionUs == C.TIME_END_OF_SOURCE
               && !buffer.waitingForKeys)) {
         maybeNotifyDownstreamFormatChanged(mediaPeriod, streamIndex);
         buffer.clear();
@@ -926,10 +937,7 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
     public void onPrepared(MediaPeriod actualMediaPeriod) {
       isPrepared = true;
       for (int i = 0; i < mediaPeriods.size(); i++) {
-        MediaPeriodImpl mediaPeriod = mediaPeriods.get(i);
-        if (mediaPeriod.callback != null) {
-          mediaPeriod.callback.onPrepared(mediaPeriod);
-        }
+        mediaPeriods.get(i).onPrepared();
       }
     }
 
@@ -1107,6 +1115,7 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
     public @MonotonicNonNull Callback callback;
     public long lastStartPositionUs;
     public boolean[] hasNotifiedDownstreamFormatChange;
+    public boolean isPrepared;
 
     public MediaPeriodImpl(
         SharedMediaPeriod sharedPeriod,
@@ -1118,6 +1127,14 @@ public final class ServerSideAdInsertionMediaSource extends BaseMediaSource
       this.mediaSourceEventDispatcher = mediaSourceEventDispatcher;
       this.drmEventDispatcher = drmEventDispatcher;
       hasNotifiedDownstreamFormatChange = new boolean[0];
+    }
+
+    /** Called when the preparation has completed. */
+    public void onPrepared() {
+      if (callback != null) {
+        callback.onPrepared(this);
+      }
+      isPrepared = true;
     }
 
     @Override

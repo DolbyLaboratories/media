@@ -90,14 +90,17 @@ public abstract class DecoderVideoRenderer extends BaseRenderer {
     REINITIALIZATION_STATE_WAIT_END_OF_STREAM
   })
   private @interface ReinitializationState {}
+
   /** The decoder does not need to be re-initialized. */
   private static final int REINITIALIZATION_STATE_NONE = 0;
+
   /**
    * The input format has changed in a way that requires the decoder to be re-initialized, but we
    * haven't yet signaled an end of stream to the existing decoder. We need to do so in order to
    * ensure that it outputs any remaining buffers before we release it.
    */
   private static final int REINITIALIZATION_STATE_SIGNAL_END_OF_STREAM = 1;
+
   /**
    * The input format has changed in a way that requires the decoder to be re-initialized, and we've
    * signaled an end of stream to the existing decoder. We're waiting for the decoder to output an
@@ -275,6 +278,11 @@ public abstract class DecoderVideoRenderer extends BaseRenderer {
     eventDispatcher.enabled(decoderCounters);
     mayRenderFirstFrameAfterEnableIfNotStarted = mayRenderStartOfStream;
     renderedFirstFrameAfterEnable = false;
+  }
+
+  @Override
+  public void enableMayRenderStartOfStream() {
+    mayRenderFirstFrameAfterEnableIfNotStarted = true;
   }
 
   @Override
@@ -570,7 +578,7 @@ public abstract class DecoderVideoRenderer extends BaseRenderer {
       throws DecoderException {
     if (frameMetadataListener != null) {
       frameMetadataListener.onVideoFrameAboutToBeRendered(
-          presentationTimeUs, System.nanoTime(), outputFormat, /* mediaFormat= */ null);
+          presentationTimeUs, getClock().nanoTime(), outputFormat, /* mediaFormat= */ null);
     }
     lastRenderTimeUs = Util.msToUs(SystemClock.elapsedRealtime() * 1000);
     int bufferMode = outputBuffer.mode;

@@ -18,11 +18,13 @@ package androidx.media3.exoplayer;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static java.lang.Math.max;
 
+import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.util.Assertions;
+import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.decoder.DecoderInputBuffer.InsufficientCapacityException;
@@ -37,12 +39,14 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 @UnstableApi
 public abstract class BaseRenderer implements Renderer, RendererCapabilities {
 
+  private final Object lock;
   private final @C.TrackType int trackType;
   private final FormatHolder formatHolder;
 
   @Nullable private RendererConfiguration configuration;
   private int index;
   private @MonotonicNonNull PlayerId playerId;
+  private @MonotonicNonNull Clock clock;
   private int state;
   @Nullable private SampleStream stream;
   @Nullable private Format[] streamFormats;
@@ -52,11 +56,16 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
   private boolean streamIsFinal;
   private boolean throwRendererExceptionIsExecuting;
 
+  @GuardedBy("lock")
+  @Nullable
+  private RendererCapabilities.Listener rendererCapabilitiesListener;
+
   /**
    * @param trackType The track type that the renderer handles. One of the {@link C} {@code
    *     TRACK_TYPE_*} constants.
    */
   public BaseRenderer(@C.TrackType int trackType) {
+    lock = new Object();
     this.trackType = trackType;
     formatHolder = new FormatHolder();
     readingPositionUs = C.TIME_END_OF_SOURCE;
@@ -73,9 +82,10 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
   }
 
   @Override
-  public final void init(int index, PlayerId playerId) {
+  public final void init(int index, PlayerId playerId, Clock clock) {
     this.index = index;
     this.playerId = playerId;
+    this.clock = clock;
   }
 
   @Override
@@ -105,7 +115,7 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
     state = STATE_ENABLED;
     onEnabled(joining, mayRenderStartOfStream);
     replaceStream(formats, stream, startPositionUs, offsetUs);
-    resetPosition(positionUs, joining);
+    resetPosition(startPositionUs, joining);
   }
 
   @Override
@@ -197,11 +207,31 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
     onReset();
   }
 
+  @Override
+  public final void release() {
+    Assertions.checkState(state == STATE_DISABLED);
+    onRelease();
+  }
+
   // RendererCapabilities implementation.
 
   @Override
   public @AdaptiveSupport int supportsMixedMimeTypeAdaptation() throws ExoPlaybackException {
     return ADAPTIVE_NOT_SUPPORTED;
+  }
+
+  @Override
+  public final void setListener(RendererCapabilities.Listener listener) {
+    synchronized (lock) {
+      this.rendererCapabilitiesListener = listener;
+    }
+  }
+
+  @Override
+  public final void clearListener() {
+    synchronized (lock) {
+      this.rendererCapabilitiesListener = null;
+    }
   }
 
   // PlayerMessage.Target implementation.
@@ -303,6 +333,15 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
     // Do nothing.
   }
 
+  /**
+   * Called when the renderer is released.
+   *
+   * <p>The default implementation is a no-op.
+   */
+  protected void onRelease() {
+    // Do nothing.
+  }
+
   // Methods to be called by subclasses.
 
   /**
@@ -355,6 +394,15 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
    */
   protected final PlayerId getPlayerId() {
     return checkNotNull(playerId);
+  }
+
+  /**
+   * Returns the {@link Clock}.
+   *
+   * <p>Must only be used after the renderer has been initialized by the player.
+   */
+  protected final Clock getClock() {
+    return checkNotNull(clock);
   }
 
   /**
@@ -470,5 +518,16 @@ public abstract class BaseRenderer implements Renderer, RendererCapabilities {
    */
   protected final boolean isSourceReady() {
     return hasReadStreamToEnd() ? streamIsFinal : Assertions.checkNotNull(stream).isReady();
+  }
+
+  /** Called when the renderer capabilities are changed. */
+  protected final void onRendererCapabilitiesChanged() {
+    @Nullable RendererCapabilities.Listener listener;
+    synchronized (lock) {
+      listener = rendererCapabilitiesListener;
+    }
+    if (listener != null) {
+      listener.onRendererCapabilitiesChanged(this);
+    }
   }
 }

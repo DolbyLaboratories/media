@@ -18,12 +18,14 @@ package androidx.media3.common;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.BundleableUtil.toBundleArrayList;
 import static com.google.common.base.MoreObjects.firstNonNull;
+import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.content.Context;
 import android.graphics.Point;
 import android.os.Bundle;
 import android.os.Looper;
 import android.view.accessibility.CaptioningManager;
+import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.util.BundleableUtil;
@@ -34,6 +36,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.primitives.Ints;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -66,6 +72,41 @@ import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
 public class TrackSelectionParameters implements Bundleable {
 
   /**
+   * The preference level for enabling audio offload on the audio sink. One of {@link
+   * #AUDIO_OFFLOAD_MODE_PREFERENCE_REQUIRED}, {@link #AUDIO_OFFLOAD_MODE_PREFERENCE_ENABLED}, or
+   * {@link #AUDIO_OFFLOAD_MODE_PREFERENCE_DISABLED}.
+   */
+  @UnstableApi
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+    AUDIO_OFFLOAD_MODE_PREFERENCE_REQUIRED,
+    AUDIO_OFFLOAD_MODE_PREFERENCE_ENABLED,
+    AUDIO_OFFLOAD_MODE_PREFERENCE_DISABLED,
+  })
+  public @interface AudioOffloadModePreference {}
+
+  /**
+   * The track selector will only select tracks that with the renderer capabilities provide an audio
+   * offload compatible playback scenario. If it is impossible to create an offload-compatible track
+   * selection, then no tracks will be selected.
+   */
+  @UnstableApi public static final int AUDIO_OFFLOAD_MODE_PREFERENCE_REQUIRED = 2;
+
+  /**
+   * The track selector will enable audio offload if the selected tracks and renderer capabilities
+   * are compatible.
+   */
+  @UnstableApi public static final int AUDIO_OFFLOAD_MODE_PREFERENCE_ENABLED = 1;
+
+  /**
+   * The track selector will disable audio offload on the audio sink. Track selection will not take
+   * into consideration whether or not a track is offload compatible.
+   */
+  @UnstableApi public static final int AUDIO_OFFLOAD_MODE_PREFERENCE_DISABLED = 0;
+
+  /**
    * A builder for {@link TrackSelectionParameters}. See the {@link TrackSelectionParameters}
    * documentation for explanations of the parameters that can be configured using this builder.
    */
@@ -90,6 +131,9 @@ public class TrackSelectionParameters implements Bundleable {
     private int maxAudioChannelCount;
     private int maxAudioBitrate;
     private ImmutableList<String> preferredAudioMimeTypes;
+    private @AudioOffloadModePreference int audioOffloadModePreference;
+    private boolean isGaplessSupportRequired;
+    private boolean isSpeedChangeSupportRequired;
     // Text
     private ImmutableList<String> preferredTextLanguages;
     private @C.RoleFlags int preferredTextRoleFlags;
@@ -124,6 +168,9 @@ public class TrackSelectionParameters implements Bundleable {
       maxAudioChannelCount = Integer.MAX_VALUE;
       maxAudioBitrate = Integer.MAX_VALUE;
       preferredAudioMimeTypes = ImmutableList.of();
+      audioOffloadModePreference = AUDIO_OFFLOAD_MODE_PREFERENCE_DISABLED;
+      isGaplessSupportRequired = false;
+      isSpeedChangeSupportRequired = false;
       // Text
       preferredTextLanguages = ImmutableList.of();
       preferredTextRoleFlags = 0;
@@ -214,6 +261,17 @@ public class TrackSelectionParameters implements Bundleable {
           bundle.getBoolean(
               FIELD_SELECT_UNDETERMINED_TEXT_LANGUAGE,
               DEFAULT_WITHOUT_CONTEXT.selectUndeterminedTextLanguage);
+      audioOffloadModePreference =
+          bundle.getInt(
+              FIELD_AUDIO_OFFLOAD_MODE_PREFERENCE,
+              DEFAULT_WITHOUT_CONTEXT.audioOffloadModePreference);
+      isGaplessSupportRequired =
+          bundle.getBoolean(
+              FIELD_IS_GAPLESS_SUPPORT_REQUIRED, DEFAULT_WITHOUT_CONTEXT.isGaplessSupportRequired);
+      isSpeedChangeSupportRequired =
+          bundle.getBoolean(
+              FIELD_IS_SPEED_CHANGE_SUPPORT_REQUIRED,
+              DEFAULT_WITHOUT_CONTEXT.isSpeedChangeSupportRequired);
       // General
       forceLowestBitrate =
           bundle.getBoolean(FIELD_FORCE_LOWEST_BITRATE, DEFAULT_WITHOUT_CONTEXT.forceLowestBitrate);
@@ -270,6 +328,9 @@ public class TrackSelectionParameters implements Bundleable {
       maxAudioChannelCount = parameters.maxAudioChannelCount;
       maxAudioBitrate = parameters.maxAudioBitrate;
       preferredAudioMimeTypes = parameters.preferredAudioMimeTypes;
+      audioOffloadModePreference = parameters.audioOffloadModePreference;
+      isGaplessSupportRequired = parameters.isGaplessSupportRequired;
+      isSpeedChangeSupportRequired = parameters.isSpeedChangeSupportRequired;
       // Text
       preferredTextLanguages = parameters.preferredTextLanguages;
       preferredTextRoleFlags = parameters.preferredTextRoleFlags;
@@ -560,6 +621,28 @@ public class TrackSelectionParameters implements Bundleable {
       return this;
     }
 
+    /**
+     * Sets the audio offload mode preferences. This includes whether to enable/disable offload as
+     * well as to set requirements like if the device must support gapless transitions or speed
+     * change during offload.
+     *
+     * <p>If {@code isGaplessSupportRequired}, then audio offload will be enabled only if the device
+     * supports gapless transitions during offload or the selected audio is not gapless.
+     *
+     * <p>If {@code isSpeedChangeSupportRequired}, then audio offload will be enabled only if the
+     * device supports changing playback speed during offload.
+     */
+    @CanIgnoreReturnValue
+    public Builder setAudioOffloadPreference(
+        @AudioOffloadModePreference int audioOffloadModePreference,
+        boolean isGaplessSupportRequired,
+        boolean isSpeedChangeSupportRequired) {
+      this.audioOffloadModePreference = audioOffloadModePreference;
+      this.isGaplessSupportRequired = isGaplessSupportRequired;
+      this.isSpeedChangeSupportRequired = isSpeedChangeSupportRequired;
+      return this;
+    }
+
     // Text
 
     /**
@@ -806,6 +889,7 @@ public class TrackSelectionParameters implements Bundleable {
   @UnstableApi
   @SuppressWarnings("deprecation")
   public static final TrackSelectionParameters DEFAULT_WITHOUT_CONTEXT = new Builder().build();
+
   /**
    * @deprecated This instance is not configured using {@link Context} constraints. Use {@link
    *     #getDefaults(Context)} instead.
@@ -828,6 +912,7 @@ public class TrackSelectionParameters implements Bundleable {
    * #viewportHeight} and {@link #viewportOrientationMayChange}) instead.
    */
   public final int maxVideoWidth;
+
   /**
    * Maximum allowed video height in pixels. The default value is {@link Integer#MAX_VALUE} (i.e. no
    * constraint).
@@ -837,54 +922,66 @@ public class TrackSelectionParameters implements Bundleable {
    * #viewportHeight} and {@link #viewportOrientationMayChange}) instead.
    */
   public final int maxVideoHeight;
+
   /**
    * Maximum allowed video frame rate in hertz. The default value is {@link Integer#MAX_VALUE} (i.e.
    * no constraint).
    */
   public final int maxVideoFrameRate;
+
   /**
    * Maximum allowed video bitrate in bits per second. The default value is {@link
    * Integer#MAX_VALUE} (i.e. no constraint).
    */
   public final int maxVideoBitrate;
+
   /** Minimum allowed video width in pixels. The default value is 0 (i.e. no constraint). */
   public final int minVideoWidth;
+
   /** Minimum allowed video height in pixels. The default value is 0 (i.e. no constraint). */
   public final int minVideoHeight;
+
   /** Minimum allowed video frame rate in hertz. The default value is 0 (i.e. no constraint). */
   public final int minVideoFrameRate;
+
   /**
    * Minimum allowed video bitrate in bits per second. The default value is 0 (i.e. no constraint).
    */
   public final int minVideoBitrate;
+
   /**
    * Viewport width in pixels. Constrains video track selections for adaptive content so that only
    * tracks suitable for the viewport are selected. The default value is the physical width of the
    * primary display, in pixels.
    */
   public final int viewportWidth;
+
   /**
    * Viewport height in pixels. Constrains video track selections for adaptive content so that only
    * tracks suitable for the viewport are selected. The default value is the physical height of the
    * primary display, in pixels.
    */
   public final int viewportHeight;
+
   /**
    * Whether the viewport orientation may change during playback. Constrains video track selections
    * for adaptive content so that only tracks suitable for the viewport are selected. The default
    * value is {@code true}.
    */
   public final boolean viewportOrientationMayChange;
+
   /**
    * The preferred sample MIME types for video tracks in order of preference, or an empty list for
    * no preference. The default is an empty list.
    */
   public final ImmutableList<String> preferredVideoMimeTypes;
+
   /**
    * The preferred {@link C.RoleFlags} for video tracks. {@code 0} selects the default track if
    * there is one, or the first track if there's no default. The default value is {@code 0}.
    */
   public final @C.RoleFlags int preferredVideoRoleFlags;
+
   // Audio
   /**
    * The preferred languages for audio and forced text tracks as IETF BCP 47 conformant tags in
@@ -892,26 +989,50 @@ public class TrackSelectionParameters implements Bundleable {
    * default. The default value is an empty list.
    */
   public final ImmutableList<String> preferredAudioLanguages;
+
   /**
    * The preferred {@link C.RoleFlags} for audio tracks. {@code 0} selects the default track if
    * there is one, or the first track if there's no default. The default value is {@code 0}.
    */
   public final @C.RoleFlags int preferredAudioRoleFlags;
+
   /**
    * Maximum allowed audio channel count. The default value is {@link Integer#MAX_VALUE} (i.e. no
    * constraint).
    */
   public final int maxAudioChannelCount;
+
   /**
    * Maximum allowed audio bitrate in bits per second. The default value is {@link
    * Integer#MAX_VALUE} (i.e. no constraint).
    */
   public final int maxAudioBitrate;
+
   /**
    * The preferred sample MIME types for audio tracks in order of preference, or an empty list for
    * no preference. The default is an empty list.
    */
   public final ImmutableList<String> preferredAudioMimeTypes;
+
+  /**
+   * The preferred offload mode setting for audio playback. The default is {@link
+   * #AUDIO_OFFLOAD_MODE_PREFERENCE_DISABLED}.
+   */
+  public final @AudioOffloadModePreference int audioOffloadModePreference;
+
+  /**
+   * A constraint on enabling offload. If {@code isGaplessSupportRequired}, then audio offload will
+   * be enabled only if the device supports gapless transitions during offload or the selected audio
+   * is not gapless.
+   */
+  public final boolean isGaplessSupportRequired;
+
+  /**
+   * A constraint on enabling offload. If {@code isSpeedChangeSupportRequired}, then audio offload
+   * will be enabled only if the device supports changing playback speed during offload.
+   */
+  public final boolean isSpeedChangeSupportRequired;
+
   // Text
   /**
    * The preferred languages for text tracks as IETF BCP 47 conformant tags in order of preference.
@@ -920,6 +1041,7 @@ public class TrackSelectionParameters implements Bundleable {
    * enabled.
    */
   public final ImmutableList<String> preferredTextLanguages;
+
   /**
    * The preferred {@link C.RoleFlags} for text tracks. {@code 0} selects the default track if there
    * is one, or no track otherwise. The default value is {@code 0}, or {@link C#ROLE_FLAG_SUBTITLE}
@@ -927,23 +1049,27 @@ public class TrackSelectionParameters implements Bundleable {
    * is enabled.
    */
   public final @C.RoleFlags int preferredTextRoleFlags;
+
   /**
    * Bitmask of selection flags that are ignored for text track selections. See {@link
    * C.SelectionFlags}. The default value is {@code 0} (i.e., no flags are ignored).
    */
   public final @C.SelectionFlags int ignoredTextSelectionFlags;
+
   /**
    * Whether a text track with undetermined language should be selected if no track with {@link
    * #preferredTextLanguages} is available, or if {@link #preferredTextLanguages} is unset. The
    * default value is {@code false}.
    */
   public final boolean selectUndeterminedTextLanguage;
+
   // General
   /**
    * Whether to force selection of the single lowest bitrate audio and video tracks that comply with
    * all other constraints. The default value is {@code false}.
    */
   public final boolean forceLowestBitrate;
+
   /**
    * Whether to force selection of the highest bitrate audio and video tracks that comply with all
    * other constraints. The default value is {@code false}.
@@ -982,6 +1108,9 @@ public class TrackSelectionParameters implements Bundleable {
     this.maxAudioChannelCount = builder.maxAudioChannelCount;
     this.maxAudioBitrate = builder.maxAudioBitrate;
     this.preferredAudioMimeTypes = builder.preferredAudioMimeTypes;
+    this.audioOffloadModePreference = builder.audioOffloadModePreference;
+    this.isGaplessSupportRequired = builder.isGaplessSupportRequired;
+    this.isSpeedChangeSupportRequired = builder.isSpeedChangeSupportRequired;
     // Text
     this.preferredTextLanguages = builder.preferredTextLanguages;
     this.preferredTextRoleFlags = builder.preferredTextRoleFlags;
@@ -1029,6 +1158,9 @@ public class TrackSelectionParameters implements Bundleable {
         && maxAudioChannelCount == other.maxAudioChannelCount
         && maxAudioBitrate == other.maxAudioBitrate
         && preferredAudioMimeTypes.equals(other.preferredAudioMimeTypes)
+        && audioOffloadModePreference == other.audioOffloadModePreference
+        && isGaplessSupportRequired == other.isGaplessSupportRequired
+        && isSpeedChangeSupportRequired == other.isSpeedChangeSupportRequired
         // Text
         && preferredTextLanguages.equals(other.preferredTextLanguages)
         && preferredTextRoleFlags == other.preferredTextRoleFlags
@@ -1064,6 +1196,9 @@ public class TrackSelectionParameters implements Bundleable {
     result = 31 * result + maxAudioChannelCount;
     result = 31 * result + maxAudioBitrate;
     result = 31 * result + preferredAudioMimeTypes.hashCode();
+    result = 31 * result + audioOffloadModePreference;
+    result = 31 * result + (isGaplessSupportRequired ? 1 : 0);
+    result = 31 * result + (isSpeedChangeSupportRequired ? 1 : 0);
     // Text
     result = 31 * result + preferredTextLanguages.hashCode();
     result = 31 * result + preferredTextRoleFlags;
@@ -1105,6 +1240,9 @@ public class TrackSelectionParameters implements Bundleable {
   private static final String FIELD_DISABLED_TRACK_TYPE = Util.intToStringMaxRadix(24);
   private static final String FIELD_PREFERRED_VIDEO_ROLE_FLAGS = Util.intToStringMaxRadix(25);
   private static final String FIELD_IGNORED_TEXT_SELECTION_FLAGS = Util.intToStringMaxRadix(26);
+  private static final String FIELD_AUDIO_OFFLOAD_MODE_PREFERENCE = Util.intToStringMaxRadix(27);
+  private static final String FIELD_IS_GAPLESS_SUPPORT_REQUIRED = Util.intToStringMaxRadix(28);
+  private static final String FIELD_IS_SPEED_CHANGE_SUPPORT_REQUIRED = Util.intToStringMaxRadix(29);
 
   /**
    * Defines a minimum field ID value for subclasses to use when implementing {@link #toBundle()}
@@ -1149,6 +1287,9 @@ public class TrackSelectionParameters implements Bundleable {
     bundle.putInt(FIELD_PREFERRED_TEXT_ROLE_FLAGS, preferredTextRoleFlags);
     bundle.putInt(FIELD_IGNORED_TEXT_SELECTION_FLAGS, ignoredTextSelectionFlags);
     bundle.putBoolean(FIELD_SELECT_UNDETERMINED_TEXT_LANGUAGE, selectUndeterminedTextLanguage);
+    bundle.putInt(FIELD_AUDIO_OFFLOAD_MODE_PREFERENCE, audioOffloadModePreference);
+    bundle.putBoolean(FIELD_IS_GAPLESS_SUPPORT_REQUIRED, isGaplessSupportRequired);
+    bundle.putBoolean(FIELD_IS_SPEED_CHANGE_SUPPORT_REQUIRED, isSpeedChangeSupportRequired);
     // General
     bundle.putBoolean(FIELD_FORCE_LOWEST_BITRATE, forceLowestBitrate);
     bundle.putBoolean(FIELD_FORCE_HIGHEST_SUPPORTED_BITRATE, forceHighestSupportedBitrate);

@@ -66,7 +66,6 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaSession.ControllerInfo;
 import androidx.media3.test.session.common.CommonConstants;
@@ -81,13 +80,14 @@ import java.util.List;
 import java.util.concurrent.Executors;
 
 /** A mock MediaLibraryService */
-@UnstableApi
 public class MockMediaLibraryService extends MediaLibraryService {
   /** ID of the session that this service will create. */
   public static final String ID = "TestLibrary";
+
   /** Key used in connection hints to instruct the mock service to use a given library root. */
   public static final String CONNECTION_HINTS_CUSTOM_LIBRARY_ROOT =
       "CONNECTION_HINTS_CUSTOM_LIBRARY_ROOT";
+
   /**
    * Key used in connection hints to instruct the mock service to remove {@link
    * SessionCommand#COMMAND_CODE_LIBRARY_SEARCH} from the available commands in {@link

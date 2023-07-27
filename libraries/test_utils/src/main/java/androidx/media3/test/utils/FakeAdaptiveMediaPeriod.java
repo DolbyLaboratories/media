@@ -24,6 +24,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.util.Assertions;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSpec;
@@ -46,7 +47,6 @@ import com.google.common.collect.ImmutableMap;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 
 /**
  * Fake {@link MediaPeriod} that provides tracks from the given {@link TrackGroupArray}. Selecting a
@@ -109,7 +109,7 @@ public class FakeAdaptiveMediaPeriod
         C.SELECTION_REASON_UNKNOWN,
         /* trackSelectionData= */ null,
         /* mediaStartTimeUs= */ 0,
-        /* mediaEndTimeUs = */ C.TIME_UNSET);
+        /* mediaEndTimeUs= */ C.TIME_UNSET);
     this.callback = callback;
     prepared = true;
     Util.castNonNull(this.callback).onPrepared(this);
@@ -128,7 +128,7 @@ public class FakeAdaptiveMediaPeriod
         C.SELECTION_REASON_UNKNOWN,
         /* trackSelectionData= */ null,
         /* mediaStartTimeUs= */ 0,
-        /* mediaEndTimeUs = */ C.TIME_UNSET);
+        /* mediaEndTimeUs= */ C.TIME_UNSET);
   }
 
   @Override

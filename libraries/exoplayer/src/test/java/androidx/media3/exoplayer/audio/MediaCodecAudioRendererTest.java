@@ -38,6 +38,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
+import androidx.media3.common.util.Clock;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.RendererCapabilities;
 import androidx.media3.exoplayer.RendererCapabilities.Capabilities;
@@ -77,12 +78,22 @@ public class MediaCodecAudioRendererTest {
           .setEncoderDelay(100)
           .setEncoderPadding(150)
           .build();
+  private static final AudioOffloadSupport AUDIO_OFFLOAD_SUPPORTED_GAPLESS_NOT_SUPPORTED =
+      new AudioOffloadSupport.Builder()
+          .setIsFormatSupported(true)
+          .setIsGaplessSupported(false)
+          .build();
+  private static final RendererConfiguration
+      RENDERER_CONFIGURATION_OFFLOAD_ENABLED_GAPLESS_REQUIRED =
+          new RendererConfiguration(
+              AudioSink.OFFLOAD_MODE_ENABLED_GAPLESS_REQUIRED, /* tunneling= */ false);
 
   private MediaCodecAudioRenderer mediaCodecAudioRenderer;
   private MediaCodecSelector mediaCodecSelector;
 
   @Mock private AudioSink audioSink;
   @Mock private AudioRendererEventListener audioRendererEventListener;
+  @Mock private RendererCapabilities.Listener rendererCapabilitiesListener;
 
   @Before
   public void setUp() throws Exception {
@@ -97,6 +108,8 @@ public class MediaCodecAudioRendererTest {
               return MimeTypes.AUDIO_RAW.equals(format.sampleMimeType)
                   && format.pcmEncoding == C.ENCODING_PCM_16BIT;
             });
+    when(audioSink.getFormatOffloadSupport(any()))
+        .thenReturn(AudioOffloadSupport.DEFAULT_UNSUPPORTED);
 
     mediaCodecSelector =
         (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) ->
@@ -122,7 +135,7 @@ public class MediaCodecAudioRendererTest {
             eventHandler,
             audioRendererEventListener,
             audioSink);
-    mediaCodecAudioRenderer.init(/* index= */ 0, PlayerId.UNSET);
+    mediaCodecAudioRenderer.init(/* index= */ 0, PlayerId.UNSET, Clock.DEFAULT);
   }
 
   @Test
@@ -277,7 +290,7 @@ public class MediaCodecAudioRendererTest {
                 oneByteSample(/* timeUs= */ 0, C.BUFFER_FLAG_KEY_FRAME), END_OF_STREAM_ITEM));
     fakeSampleStream.writeData(/* startPositionUs= */ 0);
 
-    exceptionThrowingRenderer.init(/* index= */ 0, PlayerId.UNSET);
+    exceptionThrowingRenderer.init(/* index= */ 0, PlayerId.UNSET, Clock.DEFAULT);
     exceptionThrowingRenderer.enable(
         RendererConfiguration.DEFAULT,
         new Format[] {AUDIO_AAC, changedFormat},
@@ -324,6 +337,21 @@ public class MediaCodecAudioRendererTest {
 
     shadowOf(Looper.getMainLooper()).idle();
     verify(audioRendererEventListener).onAudioSinkError(error);
+  }
+
+  @Test
+  public void
+      renderer_callsRendererCapabilitiesListener_whenAudioSinkListenerOnAudioCapabilitiesChangedIsCalled() {
+    final ArgumentCaptor<AudioSink.Listener> listenerCaptor =
+        ArgumentCaptor.forClass(AudioSink.Listener.class);
+    verify(audioSink, atLeastOnce()).setListener(listenerCaptor.capture());
+    AudioSink.Listener audioSinkListener = listenerCaptor.getValue();
+    mediaCodecAudioRenderer.getCapabilities().setListener(rendererCapabilitiesListener);
+
+    audioSinkListener.onAudioCapabilitiesChanged();
+
+    shadowOf(Looper.getMainLooper()).idle();
+    verify(rendererCapabilitiesListener).onRendererCapabilitiesChanged(mediaCodecAudioRenderer);
   }
 
   @Test
@@ -411,11 +439,204 @@ public class MediaCodecAudioRendererTest {
             /* eventHandler= */ new Handler(Looper.getMainLooper()),
             audioRendererEventListener,
             audioSink);
-    renderer.init(/* index= */ 0, PlayerId.UNSET);
+    renderer.init(/* index= */ 0, PlayerId.UNSET, Clock.DEFAULT);
 
     @Capabilities int capabilities = renderer.supportsFormat(mediaFormat);
 
     assertThat(RendererCapabilities.getFormatSupport(capabilities)).isEqualTo(C.FORMAT_HANDLED);
+  }
+
+  @Test
+  public void render_withOffloadConfiguredWithoutOffloadSupport_setsOffloadModeDisabled()
+      throws Exception {
+    when(audioSink.getFormatOffloadSupport(AUDIO_AAC))
+        .thenReturn(AudioOffloadSupport.DEFAULT_UNSUPPORTED);
+    Format format = AUDIO_AAC.buildUpon().setEncoderDelay(0).setEncoderPadding(0).build();
+    FakeSampleStream fakeSampleStream =
+        new FakeSampleStream(
+            new DefaultAllocator(/* trimOnReset= */ true, /* individualAllocationSize= */ 1024),
+            /* mediaSourceEventDispatcher= */ null,
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher(),
+            format,
+            ImmutableList.of(
+                oneByteSample(/* timeUs= */ 0, C.BUFFER_FLAG_KEY_FRAME),
+                oneByteSample(/* timeUs= */ 1_000),
+                END_OF_STREAM_ITEM));
+    fakeSampleStream.writeData(/* startPositionUs= */ 0);
+
+    mediaCodecAudioRenderer.enable(
+        RENDERER_CONFIGURATION_OFFLOAD_ENABLED_GAPLESS_REQUIRED,
+        new Format[] {format},
+        fakeSampleStream,
+        /* positionUs= */ 0,
+        /* joining= */ false,
+        /* mayRenderStartOfStream= */ true,
+        /* startPositionUs= */ 0,
+        /* offsetUs= */ 0);
+    mediaCodecAudioRenderer.start();
+    mediaCodecAudioRenderer.setCurrentStreamFinal();
+
+    while (!mediaCodecAudioRenderer.isEnded()) {
+      mediaCodecAudioRenderer.render(/* positionUs= */ 0, /* elapsedRealtimeUs= */ 0);
+    }
+
+    verify(audioSink).setOffloadMode(AudioSink.OFFLOAD_MODE_DISABLED);
+  }
+
+  @Test
+  public void render_withOffloadConfiguredWithoutGaplessOffloadSupport_setsOffloadModeDisabled()
+      throws Exception {
+    when(audioSink.getFormatOffloadSupport(AUDIO_AAC))
+        .thenReturn(AUDIO_OFFLOAD_SUPPORTED_GAPLESS_NOT_SUPPORTED);
+    Format format = AUDIO_AAC.buildUpon().setEncoderDelay(100).setEncoderPadding(100).build();
+    FakeSampleStream fakeSampleStream =
+        new FakeSampleStream(
+            new DefaultAllocator(/* trimOnReset= */ true, /* individualAllocationSize= */ 1024),
+            /* mediaSourceEventDispatcher= */ null,
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher(),
+            format,
+            ImmutableList.of(
+                oneByteSample(/* timeUs= */ 0, C.BUFFER_FLAG_KEY_FRAME),
+                oneByteSample(/* timeUs= */ 1_000),
+                END_OF_STREAM_ITEM));
+    fakeSampleStream.writeData(/* startPositionUs= */ 0);
+
+    mediaCodecAudioRenderer.enable(
+        RENDERER_CONFIGURATION_OFFLOAD_ENABLED_GAPLESS_REQUIRED,
+        new Format[] {format},
+        fakeSampleStream,
+        /* positionUs= */ 0,
+        /* joining= */ false,
+        /* mayRenderStartOfStream= */ true,
+        /* startPositionUs= */ 0,
+        /* offsetUs= */ 0);
+    mediaCodecAudioRenderer.start();
+    mediaCodecAudioRenderer.setCurrentStreamFinal();
+
+    while (!mediaCodecAudioRenderer.isEnded()) {
+      mediaCodecAudioRenderer.render(/* positionUs= */ 0, /* elapsedRealtimeUs= */ 0);
+    }
+
+    verify(audioSink).setOffloadMode(AudioSink.OFFLOAD_MODE_DISABLED);
+  }
+
+  @Test
+  public void render_replaceStreamWithOffloadSupport_setsOffloadModeEnabled() throws Exception {
+    when(audioSink.getFormatOffloadSupport(any()))
+        .thenReturn(AUDIO_OFFLOAD_SUPPORTED_GAPLESS_NOT_SUPPORTED);
+    Format format1 = AUDIO_AAC.buildUpon().setEncoderDelay(100).setEncoderPadding(100).build();
+    Format format2 = AUDIO_AAC.buildUpon().setEncoderDelay(0).setEncoderPadding(0).build();
+    FakeSampleStream fakeSampleStream1 =
+        new FakeSampleStream(
+            new DefaultAllocator(/* trimOnReset= */ true, /* individualAllocationSize= */ 1024),
+            /* mediaSourceEventDispatcher= */ null,
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher(),
+            format1,
+            ImmutableList.of(
+                oneByteSample(/* timeUs= */ 0, C.BUFFER_FLAG_KEY_FRAME),
+                oneByteSample(/* timeUs= */ 1_000),
+                END_OF_STREAM_ITEM));
+    fakeSampleStream1.writeData(/* startPositionUs= */ 0);
+    FakeSampleStream fakeSampleStream2 =
+        new FakeSampleStream(
+            new DefaultAllocator(/* trimOnReset= */ true, /* individualAllocationSize= */ 1024),
+            /* mediaSourceEventDispatcher= */ null,
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher(),
+            format2,
+            ImmutableList.of(
+                oneByteSample(/* timeUs= */ 1_000_000, C.BUFFER_FLAG_KEY_FRAME),
+                oneByteSample(/* timeUs= */ 1_001_000),
+                END_OF_STREAM_ITEM));
+    fakeSampleStream2.writeData(/* startPositionUs= */ 0);
+    mediaCodecAudioRenderer.enable(
+        RENDERER_CONFIGURATION_OFFLOAD_ENABLED_GAPLESS_REQUIRED,
+        new Format[] {format1},
+        fakeSampleStream1,
+        /* positionUs= */ 0,
+        /* joining= */ false,
+        /* mayRenderStartOfStream= */ true,
+        /* startPositionUs= */ 0,
+        /* offsetUs= */ 0);
+    mediaCodecAudioRenderer.start();
+    while (!mediaCodecAudioRenderer.hasReadStreamToEnd()) {
+      mediaCodecAudioRenderer.render(/* positionUs= */ 0, /* elapsedRealtimeUs= */ 0);
+    }
+
+    mediaCodecAudioRenderer.replaceStream(
+        new Format[] {format2},
+        fakeSampleStream2,
+        /* startPositionUs= */ 1_000_000,
+        /* offsetUs= */ 1_000_000);
+    mediaCodecAudioRenderer.setCurrentStreamFinal();
+    while (!mediaCodecAudioRenderer.isEnded()) {
+      mediaCodecAudioRenderer.render(/* positionUs= */ 0, /* elapsedRealtimeUs= */ 0);
+    }
+
+    InOrder inOrder = inOrder(audioSink);
+    inOrder.verify(audioSink).setOffloadMode(AudioSink.OFFLOAD_MODE_DISABLED);
+    inOrder.verify(audioSink).setOffloadMode(AudioSink.OFFLOAD_MODE_ENABLED_GAPLESS_REQUIRED);
+  }
+
+  @Test
+  public void render_replaceStreamWithoutGaplessSupport_setsOffloadModeDisabled() throws Exception {
+    when(audioSink.getFormatOffloadSupport(any()))
+        .thenReturn(AUDIO_OFFLOAD_SUPPORTED_GAPLESS_NOT_SUPPORTED);
+    Format format1 = AUDIO_AAC.buildUpon().setEncoderDelay(0).setEncoderPadding(0).build();
+    Format format2 = AUDIO_AAC.buildUpon().setEncoderDelay(100).setEncoderPadding(100).build();
+    FakeSampleStream fakeSampleStream1 =
+        new FakeSampleStream(
+            new DefaultAllocator(/* trimOnReset= */ true, /* individualAllocationSize= */ 1024),
+            /* mediaSourceEventDispatcher= */ null,
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher(),
+            format1,
+            ImmutableList.of(
+                oneByteSample(/* timeUs= */ 0, C.BUFFER_FLAG_KEY_FRAME),
+                oneByteSample(/* timeUs= */ 1_000),
+                END_OF_STREAM_ITEM));
+    fakeSampleStream1.writeData(/* startPositionUs= */ 0);
+    FakeSampleStream fakeSampleStream2 =
+        new FakeSampleStream(
+            new DefaultAllocator(/* trimOnReset= */ true, /* individualAllocationSize= */ 1024),
+            /* mediaSourceEventDispatcher= */ null,
+            DrmSessionManager.DRM_UNSUPPORTED,
+            new DrmSessionEventListener.EventDispatcher(),
+            format2,
+            ImmutableList.of(
+                oneByteSample(/* timeUs= */ 1_000_000, C.BUFFER_FLAG_KEY_FRAME),
+                oneByteSample(/* timeUs= */ 1_001_000),
+                END_OF_STREAM_ITEM));
+    fakeSampleStream2.writeData(/* startPositionUs= */ 0);
+    mediaCodecAudioRenderer.enable(
+        RENDERER_CONFIGURATION_OFFLOAD_ENABLED_GAPLESS_REQUIRED,
+        new Format[] {format1},
+        fakeSampleStream1,
+        /* positionUs= */ 0,
+        /* joining= */ false,
+        /* mayRenderStartOfStream= */ true,
+        /* startPositionUs= */ 0,
+        /* offsetUs= */ 0);
+    mediaCodecAudioRenderer.start();
+    while (!mediaCodecAudioRenderer.hasReadStreamToEnd()) {
+      mediaCodecAudioRenderer.render(/* positionUs= */ 0, /* elapsedRealtimeUs= */ 0);
+    }
+    verify(audioSink).setOffloadMode(AudioSink.OFFLOAD_MODE_ENABLED_GAPLESS_REQUIRED);
+
+    mediaCodecAudioRenderer.replaceStream(
+        new Format[] {format2},
+        fakeSampleStream2,
+        /* startPositionUs= */ 1_000_000,
+        /* offsetUs= */ 1_000_000);
+    mediaCodecAudioRenderer.setCurrentStreamFinal();
+    while (!mediaCodecAudioRenderer.isEnded()) {
+      mediaCodecAudioRenderer.render(/* positionUs= */ 0, /* elapsedRealtimeUs= */ 0);
+    }
+
+    verify(audioSink).setOffloadMode(AudioSink.OFFLOAD_MODE_DISABLED);
   }
 
   private static Format getAudioSinkFormat(Format inputFormat) {

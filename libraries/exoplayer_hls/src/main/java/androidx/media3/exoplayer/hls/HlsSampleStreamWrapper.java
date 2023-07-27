@@ -35,6 +35,7 @@ import androidx.media3.common.ParserException;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.HttpDataSource;
@@ -71,6 +72,7 @@ import androidx.media3.extractor.metadata.emsg.EventMessageDecoder;
 import androidx.media3.extractor.metadata.id3.PrivFrame;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
+import com.google.common.primitives.Ints;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -80,7 +82,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.checkerframework.checker.nullness.qual.EnsuresNonNull;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.RequiresNonNull;
@@ -392,13 +393,12 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
           // If there's still a chance of avoiding a seek, try and seek within the sample queue.
           if (!seekRequired) {
             SampleQueue sampleQueue = sampleQueues[trackGroupToSampleQueueIndex[trackGroupIndex]];
-            // A seek can be avoided if we're able to seek to the current playback position in
-            // the sample queue, or if we haven't read anything from the queue since the previous
-            // seek (this case is common for sparse tracks such as metadata tracks). In all other
-            // cases a seek is required.
+            // A seek can be avoided if we haven't read any samples yet (e.g. for the first track
+            // selection) or we are able to seek to the current playback position in the sample
+            // queue. In all other cases a seek is required.
             seekRequired =
-                !sampleQueue.seekTo(positionUs, /* allowTimeBeyondBuffer= */ true)
-                    && sampleQueue.getReadIndex() != 0;
+                sampleQueue.getReadIndex() != 0
+                    && !sampleQueue.seekTo(positionUs, /* allowTimeBeyondBuffer= */ true);
           }
         }
       }
@@ -557,8 +557,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     }
   }
 
-  public void setIsTimestampMaster(boolean isTimestampMaster) {
-    chunkSource.setIsTimestampMaster(isTimestampMaster);
+  public void setIsPrimaryTimestampSource(boolean isPrimaryTimestampSource) {
+    chunkSource.setIsPrimaryTimestampSource(isPrimaryTimestampSource);
   }
 
   /**
@@ -664,7 +664,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       Format format = Assertions.checkNotNull(formatHolder.format);
       if (sampleQueueIndex == primarySampleQueueIndex) {
         // Fill in primary sample format with information from the track format.
-        int chunkUid = sampleQueues[sampleQueueIndex].peekSourceId();
+        int chunkUid = Ints.checkedCast(sampleQueues[sampleQueueIndex].peekSourceId());
         int chunkIndex = 0;
         while (chunkIndex < mediaChunks.size() && mediaChunks.get(chunkIndex).uid != chunkUid) {
           chunkIndex++;
@@ -1549,7 +1549,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       sampleMimeType = MimeTypes.getMediaMimeType(codecs);
     } else {
       // The variant assigns more than one codec string to this track. We choose whichever codec
-      // string matches the sample mime type. This can happen when different languages are encoded
+      // string matches the sample MIME type. This can happen when different languages are encoded
       // using different codecs.
       codecs =
           MimeTypes.getCodecsCorrespondingToMimeType(

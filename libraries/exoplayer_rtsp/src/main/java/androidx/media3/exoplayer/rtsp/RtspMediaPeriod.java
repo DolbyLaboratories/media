@@ -19,6 +19,7 @@ package androidx.media3.exoplayer.rtsp;
 import static androidx.media3.common.util.Assertions.checkNotNull;
 import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static androidx.media3.common.util.Util.usToMs;
 import static java.lang.Math.min;
 
 import android.net.Uri;
@@ -28,6 +29,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.StreamKey;
 import androidx.media3.common.TrackGroup;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.decoder.DecoderInputBuffer;
@@ -57,7 +59,6 @@ import java.net.BindException;
 import java.util.ArrayList;
 import java.util.List;
 import javax.net.SocketFactory;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** A {@link MediaPeriod} that loads an RTSP stream. */
@@ -314,7 +315,22 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
 
     pendingSeekPositionUs = positionUs;
-    rtspClient.seekToUs(positionUs);
+
+    if (loadingFinished) {
+      for (int i = 0; i < rtspLoaderWrappers.size(); i++) {
+        rtspLoaderWrappers.get(i).resumeLoad();
+      }
+
+      if (isUsingRtpTcp) {
+        rtspClient.startPlayback(/* offsetMs= */ usToMs(positionUs));
+      } else {
+        rtspClient.seekToUs(positionUs);
+      }
+
+    } else {
+      rtspClient.seekToUs(positionUs);
+    }
+
     for (int i = 0; i < rtspLoaderWrappers.size(); i++) {
       rtspLoaderWrappers.get(i).seekTo(positionUs);
     }
@@ -530,6 +546,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
           break;
         }
       }
+
+      rtspClient.signalPlaybackEnded();
     }
 
     @Override
@@ -815,6 +833,14 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         // Update loadingFinished every time loading is canceled.
         updateLoadingFinished();
       }
+    }
+
+    /** Resumes loading after {@linkplain #cancelLoad() loading is canceled}. */
+    public void resumeLoad() {
+      checkState(canceled);
+      canceled = false;
+      updateLoadingFinished();
+      startLoading();
     }
 
     /** Resets the {@link Loadable} and {@link SampleQueue} to prepare for an RTSP seek. */

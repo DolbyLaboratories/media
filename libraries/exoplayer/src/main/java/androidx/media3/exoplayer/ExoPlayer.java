@@ -37,11 +37,13 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.common.PriorityTaskManager;
 import androidx.media3.common.Timeline;
+import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
@@ -53,7 +55,6 @@ import androidx.media3.exoplayer.analytics.AnalyticsCollector;
 import androidx.media3.exoplayer.analytics.AnalyticsListener;
 import androidx.media3.exoplayer.analytics.DefaultAnalyticsCollector;
 import androidx.media3.exoplayer.audio.AudioSink;
-import androidx.media3.exoplayer.audio.DefaultAudioSink;
 import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer;
 import androidx.media3.exoplayer.metadata.MetadataRenderer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
@@ -129,7 +130,7 @@ import java.util.List;
  * <p>The figure below shows ExoPlayer's threading model.
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/exoplayer-threading-model.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/exoplayer/exoplayer-threading-model.svg"
  * alt="ExoPlayer's threading model">
  *
  * <ul>
@@ -159,8 +160,8 @@ import java.util.List;
  *       may use background threads to load data. These are implementation specific.
  * </ul>
  */
-// TODO(b/276289331): Revert to media3-hosted SVG links above once they're available on
-// developer.android.com.
+// TODO: b/288080357 - Replace developer.android.com fully-qualified SVG URL above with a relative
+// URL once we stop publishing exoplayer2 javadoc.
 public interface ExoPlayer extends Player {
 
   /**
@@ -478,6 +479,7 @@ public interface ExoPlayer extends Player {
     @C.WakeMode /* package */ int wakeMode;
     /* package */ boolean handleAudioBecomingNoisy;
     /* package */ boolean skipSilenceEnabled;
+    /* package */ boolean deviceVolumeControlEnabled;
     @C.VideoScalingMode /* package */ int videoScalingMode;
     @C.VideoChangeFrameRateStrategy /* package */ int videoChangeFrameRateStrategy;
     /* package */ boolean useLazyPreparation;
@@ -491,6 +493,7 @@ public interface ExoPlayer extends Player {
     /* package */ boolean usePlatformDiagnostics;
     @Nullable /* package */ Looper playbackLooper;
     /* package */ boolean buildCalled;
+    /* package */ boolean suppressPlaybackOnUnsuitableOutput;
 
     /**
      * Creates a builder.
@@ -711,6 +714,33 @@ public interface ExoPlayer extends Player {
     }
 
     /**
+     * Sets whether the player should suppress playback that is attempted on an unsuitable output.
+     * An example of an unsuitable audio output is the built-in speaker on a Wear OS device (unless
+     * it is explicitly selected by the user).
+     *
+     * <p>If called with {@code suppressPlaybackOnUnsuitableOutput = true}, then a playback attempt
+     * on an unsuitable audio output will result in calls to {@link
+     * Player.Listener#onPlaybackSuppressionReasonChanged(int)} with the value {@link
+     * Player#PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT}.
+     *
+     * <p>Callers of this may also want to enable {@link #setHandleAudioBecomingNoisy(boolean)} to
+     * prevent playback from continuing on the built-in speaker when a headset is disconnected.
+     *
+     * @param suppressPlaybackOnUnsuitableOutput Whether the player should suppress the playback
+     *     when it is attempted on an unsuitable output.
+     * @return This builder.
+     * @throws IllegalStateException If {@link #build()} has already been called.
+     */
+    @CanIgnoreReturnValue
+    @UnstableApi
+    public Builder setSuppressPlaybackOnUnsuitableOutput(
+        boolean suppressPlaybackOnUnsuitableOutput) {
+      checkState(!buildCalled);
+      this.suppressPlaybackOnUnsuitableOutput = suppressPlaybackOnUnsuitableOutput;
+      return this;
+    }
+
+    /**
      * Sets the {@link RenderersFactory} that will be used by the player.
      *
      * @param renderersFactory A {@link RenderersFactory}.
@@ -914,6 +944,21 @@ public interface ExoPlayer extends Player {
     public Builder setSkipSilenceEnabled(boolean skipSilenceEnabled) {
       checkState(!buildCalled);
       this.skipSilenceEnabled = skipSilenceEnabled;
+      return this;
+    }
+
+    /**
+     * Sets whether the player is allowed to set, increase, decrease or mute device volume.
+     *
+     * @param deviceVolumeControlEnabled Whether controlling device volume is enabled.
+     * @return This builder.
+     * @throws IllegalStateException If {@link #build()} has already been called.
+     */
+    @CanIgnoreReturnValue
+    @UnstableApi
+    public Builder setDeviceVolumeControlEnabled(boolean deviceVolumeControlEnabled) {
+      checkState(!buildCalled);
+      this.deviceVolumeControlEnabled = deviceVolumeControlEnabled;
       return this;
     }
 
@@ -1146,7 +1191,7 @@ public interface ExoPlayer extends Player {
      * <p>The backing thread should run with priority {@link Process#THREAD_PRIORITY_AUDIO} and
      * should handle messages within 10ms.
      *
-     * @param playbackLooper A {@link looper}.
+     * @param playbackLooper A {@link Looper}.
      * @return This builder.
      * @throws IllegalStateException If {@link #build()} has already been called.
      */
@@ -1338,13 +1383,6 @@ public interface ExoPlayer extends Player {
   Clock getClock();
 
   /**
-   * @deprecated Use {@link #prepare()} instead.
-   */
-  @UnstableApi
-  @Deprecated
-  void retry();
-
-  /**
    * @deprecated Use {@link #setMediaSource(MediaSource)} and {@link #prepare()} instead.
    */
   @UnstableApi
@@ -1459,10 +1497,34 @@ public interface ExoPlayer extends Player {
   /**
    * Sets the shuffle order.
    *
+   * <p>The {@link ShuffleOrder} passed must have the same length as the current playlist ({@link
+   * Player#getMediaItemCount()}).
+   *
    * @param shuffleOrder The shuffle order.
    */
   @UnstableApi
   void setShuffleOrder(ShuffleOrder shuffleOrder);
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>ExoPlayer will keep the existing {@link MediaSource} for this {@link MediaItem} if
+   * {@linkplain MediaSource#canUpdateMediaItem supported} by the {@link MediaSource}. If the
+   * current item is replaced, this will also not interrupt the ongoing playback.
+   */
+  @Override
+  void replaceMediaItem(int index, MediaItem mediaItem);
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>ExoPlayer will keep the existing {@link MediaSource} instances for the new {@link MediaItem
+   * MediaItems} if {@linkplain MediaSource#canUpdateMediaItem supported} by all of these {@link
+   * MediaSource} instances. If the current item is replaced, this will also not interrupt the
+   * ongoing playback.
+   */
+  @Override
+  void replaceMediaItems(int fromIndex, int toIndex, List<MediaItem> mediaItems);
 
   /**
    * Sets the attributes for audio playback, used by the underlying audio track. If not set, the
@@ -1532,6 +1594,25 @@ public interface ExoPlayer extends Player {
   /** Returns whether skipping silences in the audio stream is enabled. */
   @UnstableApi
   boolean getSkipSilenceEnabled();
+
+  /**
+   * Sets a {@link List} of {@linkplain Effect video effects} that will be applied to each video
+   * frame.
+   *
+   * <p>The following limitations exist for using {@linkplain Effect video effects}:
+   *
+   * <ul>
+   *   <li>This feature works only with the default {@link MediaCodecVideoRenderer} and not custom
+   *       or extension {@linkplain Renderer video renderers}.
+   *   <li>This feature does not work with DRM-protected contents.
+   *   <li>This method should be called before calling {@link #prepare}.
+   * </ul>
+   *
+   * @param videoEffects The {@link List} of {@linkplain Effect video effects} to apply.
+   */
+  @RequiresApi(18)
+  @UnstableApi
+  void setVideoEffects(List<Effect> videoEffects);
 
   /**
    * Sets the {@link C.VideoScalingMode}.
@@ -1716,13 +1797,6 @@ public interface ExoPlayer extends Player {
   void setHandleAudioBecomingNoisy(boolean handleAudioBecomingNoisy);
 
   /**
-   * @deprecated Use {@link #setWakeMode(int)} instead.
-   */
-  @UnstableApi
-  @Deprecated
-  void setHandleWakeLock(boolean handleWakeLock);
-
-  /**
    * Sets how the player should keep the device awake for playback when the screen is off.
    *
    * <p>Enabling this feature requires the {@link android.Manifest.permission#WAKE_LOCK} permission.
@@ -1771,9 +1845,8 @@ public interface ExoPlayer extends Player {
    * the following:
    *
    * <ul>
-   *   <li>Audio offload rendering is enabled in {@link
-   *       DefaultRenderersFactory#setEnableAudioOffload} or the equivalent option passed to {@link
-   *       DefaultAudioSink.Builder#setOffloadMode}.
+   *   <li>Audio offload rendering is enabled through {@link
+   *       TrackSelectionParameters.Builder#setAudioOffloadPreference}.
    *   <li>An audio track is playing in a format that the device supports offloading (for example,
    *       MP3 or AAC).
    *   <li>The {@link AudioSink} is playing with an offload {@link AudioTrack}.

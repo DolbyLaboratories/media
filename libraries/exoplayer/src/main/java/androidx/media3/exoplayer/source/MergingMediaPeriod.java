@@ -16,7 +16,6 @@
 package androidx.media3.exoplayer.source;
 
 import static androidx.media3.common.util.Assertions.checkNotNull;
-import static java.lang.Math.max;
 
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -24,6 +23,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.StreamKey;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.util.Assertions;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.exoplayer.FormatHolder;
 import androidx.media3.exoplayer.SeekParameters;
@@ -37,7 +37,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** Merges multiple {@link MediaPeriod}s. */
@@ -461,7 +460,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         FormatHolder formatHolder, DecoderInputBuffer buffer, @ReadFlags int readFlags) {
       int readResult = sampleStream.readData(formatHolder, buffer, readFlags);
       if (readResult == C.RESULT_BUFFER_READ) {
-        buffer.timeUs = max(0, buffer.timeUs + timeOffsetUs);
+        buffer.timeUs = buffer.timeUs + timeOffsetUs;
       }
       return readResult;
     }
@@ -596,13 +595,18 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
 
     @Override
-    public boolean blacklist(int index, long exclusionDurationMs) {
-      return trackSelection.blacklist(index, exclusionDurationMs);
+    public boolean excludeTrack(int index, long exclusionDurationMs) {
+      return trackSelection.excludeTrack(index, exclusionDurationMs);
     }
 
     @Override
-    public boolean isBlacklisted(int index, long nowMs) {
-      return trackSelection.isBlacklisted(index, nowMs);
+    public boolean isTrackExcluded(int index, long nowMs) {
+      return trackSelection.isTrackExcluded(index, nowMs);
+    }
+
+    @Override
+    public long getLatestBitrateEstimate() {
+      return trackSelection.getLatestBitrateEstimate();
     }
 
     @Override

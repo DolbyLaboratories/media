@@ -18,6 +18,7 @@ package androidx.media3.demo.session
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.PendingIntent.*
 import android.app.TaskStackBuilder
 import android.content.Intent
@@ -28,9 +29,11 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.Util
+import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.*
 import androidx.media3.session.LibraryResult.RESULT_ERROR_NOT_SUPPORTED
+import androidx.media3.session.MediaSession.ConnectionResult
 import androidx.media3.session.MediaSession.ControllerInfo
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
@@ -43,8 +46,6 @@ class PlaybackService : MediaLibraryService() {
   private lateinit var mediaLibrarySession: MediaLibrarySession
   private lateinit var customCommands: List<CommandButton>
 
-  private var customLayout = ImmutableList.of<CommandButton>()
-
   companion object {
     private const val SEARCH_QUERY_PREFIX_COMPAT = "androidx://media3-session/playFromSearch"
     private const val SEARCH_QUERY_PREFIX = "androidx://media3-session/setMediaUri"
@@ -54,6 +55,7 @@ class PlaybackService : MediaLibraryService() {
       "android.media3.session.demo.SHUFFLE_OFF"
     private const val NOTIFICATION_ID = 123
     private const val CHANNEL_ID = "demo_session_notification_channel_id"
+    private val immutableFlag = if (Build.VERSION.SDK_INT >= 23) FLAG_IMMUTABLE else 0
   }
 
   override fun onCreate() {
@@ -67,7 +69,6 @@ class PlaybackService : MediaLibraryService() {
           SessionCommand(CUSTOM_COMMAND_TOGGLE_SHUFFLE_MODE_OFF, Bundle.EMPTY)
         )
       )
-    customLayout = ImmutableList.of(customCommands[0])
     initializeSessionAndPlayer()
     setListener(MediaSessionServiceListener())
   }
@@ -77,42 +78,31 @@ class PlaybackService : MediaLibraryService() {
   }
 
   override fun onTaskRemoved(rootIntent: Intent?) {
-    if (!player.playWhenReady) {
+    if (!player.playWhenReady || player.mediaItemCount == 0) {
       stopSelf()
     }
   }
 
   override fun onDestroy() {
-    player.release()
+    mediaLibrarySession.setSessionActivity(getBackStackedActivity())
     mediaLibrarySession.release()
+    player.release()
     clearListener()
     super.onDestroy()
   }
 
   private inner class CustomMediaLibrarySessionCallback : MediaLibrarySession.Callback {
 
-    override fun onConnect(
-      session: MediaSession,
-      controller: ControllerInfo
-    ): MediaSession.ConnectionResult {
-      val connectionResult = super.onConnect(session, controller)
-      val availableSessionCommands = connectionResult.availableSessionCommands.buildUpon()
+    override fun onConnect(session: MediaSession, controller: ControllerInfo): ConnectionResult {
+      val availableSessionCommands =
+        ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
       for (commandButton in customCommands) {
         // Add custom command to available session commands.
         commandButton.sessionCommand?.let { availableSessionCommands.add(it) }
       }
-      return MediaSession.ConnectionResult.accept(
-        availableSessionCommands.build(),
-        connectionResult.availablePlayerCommands
-      )
-    }
-
-    override fun onPostConnect(session: MediaSession, controller: ControllerInfo) {
-      if (!customLayout.isEmpty() && controller.controllerVersion != 0) {
-        // Let Media3 controller (for instance the MediaNotificationProvider) know about the custom
-        // layout right after it connected.
-        ignoreFuture(mediaLibrarySession.setCustomLayout(controller, customLayout))
-      }
+      return ConnectionResult.AcceptedResultBuilder(session)
+        .setAvailableSessionCommands(availableSessionCommands.build())
+        .build()
     }
 
     override fun onCustomCommand(
@@ -125,16 +115,12 @@ class PlaybackService : MediaLibraryService() {
         // Enable shuffling.
         player.shuffleModeEnabled = true
         // Change the custom layout to contain the `Disable shuffling` command.
-        customLayout = ImmutableList.of(customCommands[1])
-        // Send the updated custom layout to controllers.
-        session.setCustomLayout(customLayout)
+        session.setCustomLayout(ImmutableList.of(customCommands[1]))
       } else if (CUSTOM_COMMAND_TOGGLE_SHUFFLE_MODE_OFF == customCommand.customAction) {
         // Disable shuffling.
         player.shuffleModeEnabled = false
         // Change the custom layout to contain the `Enable shuffling` command.
-        customLayout = ImmutableList.of(customCommands[0])
-        // Send the updated custom layout to controllers.
-        session.setCustomLayout(customLayout)
+        session.setCustomLayout(ImmutableList.of(customCommands[0]))
       }
       return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
     }
@@ -234,22 +220,28 @@ class PlaybackService : MediaLibraryService() {
         .build()
     MediaItemTree.initialize(assets)
 
-    val sessionActivityPendingIntent =
-      TaskStackBuilder.create(this).run {
-        addNextIntent(Intent(this@PlaybackService, MainActivity::class.java))
-        addNextIntent(Intent(this@PlaybackService, PlayerActivity::class.java))
-
-        val immutableFlag = if (Build.VERSION.SDK_INT >= 23) FLAG_IMMUTABLE else 0
-        getPendingIntent(0, immutableFlag or FLAG_UPDATE_CURRENT)
-      }
-
     mediaLibrarySession =
       MediaLibrarySession.Builder(this, player, librarySessionCallback)
-        .setSessionActivity(sessionActivityPendingIntent)
+        .setSessionActivity(getSingleTopActivity())
+        .setCustomLayout(ImmutableList.of(customCommands[0]))
+        .setBitmapLoader(CacheBitmapLoader(DataSourceBitmapLoader(/* context= */ this)))
         .build()
-    if (!customLayout.isEmpty()) {
-      // Send custom layout to legacy session.
-      mediaLibrarySession.setCustomLayout(customLayout)
+  }
+
+  private fun getSingleTopActivity(): PendingIntent {
+    return getActivity(
+      this,
+      0,
+      Intent(this, PlayerActivity::class.java),
+      immutableFlag or FLAG_UPDATE_CURRENT
+    )
+  }
+
+  private fun getBackStackedActivity(): PendingIntent {
+    return TaskStackBuilder.create(this).run {
+      addNextIntent(Intent(this@PlaybackService, MainActivity::class.java))
+      addNextIntent(Intent(this@PlaybackService, PlayerActivity::class.java))
+      getPendingIntent(0, immutableFlag or FLAG_UPDATE_CURRENT)
     }
   }
 
@@ -285,8 +277,6 @@ class PlaybackService : MediaLibraryService() {
       val pendingIntent =
         TaskStackBuilder.create(this@PlaybackService).run {
           addNextIntent(Intent(this@PlaybackService, MainActivity::class.java))
-
-          val immutableFlag = if (Build.VERSION.SDK_INT >= 23) FLAG_IMMUTABLE else 0
           getPendingIntent(0, immutableFlag or FLAG_UPDATE_CURRENT)
         }
       val builder =

@@ -29,6 +29,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
+import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlaybackException;
 import androidx.media3.exoplayer.analytics.PlayerId;
@@ -134,6 +135,9 @@ public interface AudioSink {
      *     a {@link WriteException}, or an {@link UnexpectedDiscontinuityException}.
      */
     default void onAudioSinkError(Exception audioSinkError) {}
+
+    /** Called when audio capabilities changed. */
+    default void onAudioCapabilitiesChanged() {}
   }
 
   /** Thrown when a failure occurs configuring the sink. */
@@ -160,8 +164,10 @@ public interface AudioSink {
 
     /** The underlying {@link AudioTrack}'s state. */
     public final int audioTrackState;
+
     /** If the exception can be recovered by recreating the sink. */
     public final boolean isRecoverable;
+
     /** The input {@link Format} of the sink when the error occurs. */
     public final Format format;
 
@@ -209,8 +215,10 @@ public interface AudioSink {
      * Otherwise, the meaning of the error code depends on the sink implementation.
      */
     public final int errorCode;
+
     /** If the exception can be recovered by recreating the sink. */
     public final boolean isRecoverable;
+
     /** The input {@link Format} of the sink when the error occurs. */
     public final Format format;
 
@@ -233,6 +241,7 @@ public interface AudioSink {
   final class UnexpectedDiscontinuityException extends Exception {
     /** The actual presentation time of a sample, in microseconds. */
     public final long actualPresentationTimeUs;
+
     /** The expected presentation time of a sample, in microseconds. */
     public final long expectedPresentationTimeUs;
 
@@ -269,18 +278,56 @@ public interface AudioSink {
     SINK_FORMAT_UNSUPPORTED
   })
   @interface SinkFormatSupport {}
+
   /** The sink supports the format directly, without the need for internal transcoding. */
   int SINK_FORMAT_SUPPORTED_DIRECTLY = 2;
+
   /**
    * The sink supports the format, but needs to transcode it internally to do so. Internal
    * transcoding may result in lower quality and higher CPU load in some cases.
    */
   int SINK_FORMAT_SUPPORTED_WITH_TRANSCODING = 1;
+
   /** The sink does not support the format. */
   int SINK_FORMAT_UNSUPPORTED = 0;
 
   /** Returned by {@link #getCurrentPositionUs(boolean)} when the position is not set. */
   long CURRENT_POSITION_NOT_SET = Long.MIN_VALUE;
+
+  /**
+   * Audio offload mode configuration. One of {@link #OFFLOAD_MODE_DISABLED}, {@link
+   * #OFFLOAD_MODE_ENABLED_GAPLESS_REQUIRED} or {@link #OFFLOAD_MODE_ENABLED_GAPLESS_NOT_REQUIRED}.
+   */
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+    OFFLOAD_MODE_DISABLED,
+    OFFLOAD_MODE_ENABLED_GAPLESS_REQUIRED,
+    OFFLOAD_MODE_ENABLED_GAPLESS_NOT_REQUIRED
+  })
+  @interface OffloadMode {}
+
+  /** The audio sink will never play in offload mode. */
+  int OFFLOAD_MODE_DISABLED = 0;
+
+  /**
+   * The audio sink will prefer offload playback except in the case where both the track is gapless
+   * and the device does support gapless offload playback.
+   *
+   * <p>Use this option to prioritize uninterrupted playback of consecutive audio tracks over power
+   * savings.
+   */
+  int OFFLOAD_MODE_ENABLED_GAPLESS_REQUIRED = 1;
+
+  /**
+   * The audio sink will prefer offload playback even if this might result in silence gaps between
+   * tracks.
+   *
+   * <p>Use this option to prioritize battery saving at the cost of a possible non seamless
+   * transitions between tracks of the same album.
+   */
+  int OFFLOAD_MODE_ENABLED_GAPLESS_NOT_REQUIRED = 2;
 
   /**
    * Sets the listener for sink events, which should be the audio renderer.
@@ -295,6 +342,13 @@ public interface AudioSink {
    * @param playerId The {@link PlayerId}, or null to clear a previously set id.
    */
   default void setPlayerId(@Nullable PlayerId playerId) {}
+
+  /**
+   * Sets the {@link Clock} to use for timing in this audio sink.
+   *
+   * @param clock The {@link Clock}.
+   */
+  default void setClock(Clock clock) {}
 
   /**
    * Returns whether the sink supports a given {@link Format}.
@@ -312,6 +366,16 @@ public interface AudioSink {
    */
   @SinkFormatSupport
   int getFormatSupport(Format format);
+
+  /**
+   * Returns the level of offload support that the sink can provide for a given {@link Format}.
+   *
+   * @param format The format.
+   * @return The level of support provided.
+   */
+  default AudioOffloadSupport getFormatOffloadSupport(Format format) {
+    return AudioOffloadSupport.DEFAULT_UNSUPPORTED;
+  }
 
   /**
    * Returns the playback position in the stream starting at zero, in microseconds, or {@link
@@ -457,6 +521,14 @@ public interface AudioSink {
   void disableTunneling();
 
   /**
+   * Sets audio offload mode, if possible. Enabling offload is only possible if the sink is based on
+   * a platform {@link AudioTrack}, and requires platform API version 29 onwards.
+   *
+   * @throws IllegalStateException Thrown if enabling offload on platform API version &lt; 29.
+   */
+  default void setOffloadMode(@OffloadMode int offloadMode) {}
+
+  /**
    * Sets the playback volume.
    *
    * @param volume Linear output gain to apply to all channels. Should be in the range [0.0, 1.0].
@@ -487,4 +559,7 @@ public interface AudioSink {
 
   /** Resets the sink, releasing any resources that it currently holds. */
   void reset();
+
+  /** Releases the audio sink. */
+  default void release() {}
 }

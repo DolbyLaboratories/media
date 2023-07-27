@@ -16,6 +16,7 @@
 package androidx.media3.session;
 
 import static androidx.media3.test.session.common.CommonConstants.ACTION_MEDIA3_CONTROLLER;
+import static androidx.media3.test.session.common.CommonConstants.KEY_COMMAND_BUTTON_LIST;
 import static androidx.media3.test.session.common.CommonConstants.MEDIA3_CONTROLLER_PROVIDER_SERVICE;
 import static androidx.media3.test.session.common.TestUtils.SERVICE_CONNECTION_TIMEOUT_MS;
 import static com.google.common.truth.Truth.assertWithMessage;
@@ -29,6 +30,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
 import androidx.annotation.Nullable;
+import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackParameters;
@@ -37,9 +39,10 @@ import androidx.media3.common.Rating;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.util.BundleableUtil;
 import androidx.media3.common.util.Log;
-import androidx.media3.common.util.UnstableApi;
 import androidx.media3.test.session.common.IRemoteMediaController;
 import androidx.media3.test.session.common.TestUtils;
+import com.google.common.collect.ImmutableList;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -48,7 +51,6 @@ import java.util.concurrent.CountDownLatch;
  * Represents remote {@link MediaController} the client app's MediaControllerProviderService. Users
  * can run {@link MediaController} methods remotely with this object.
  */
-@UnstableApi
 public class RemoteMediaController {
   static final String TAG = "RemoteMediaController";
 
@@ -145,6 +147,10 @@ public class RemoteMediaController {
     binder.setMediaItem(controllerId, mediaItem.toBundle());
   }
 
+  public void setMediaItemIncludeLocalConfiguration(MediaItem mediaItem) throws RemoteException {
+    binder.setMediaItem(controllerId, mediaItem.toBundleIncludeLocalConfiguration());
+  }
+
   public void setMediaItem(MediaItem mediaItem, long startPositionMs) throws RemoteException {
     binder.setMediaItemWithStartPosition(controllerId, mediaItem.toBundle(), startPositionMs);
   }
@@ -155,6 +161,13 @@ public class RemoteMediaController {
 
   public void setMediaItems(List<MediaItem> mediaItems) throws RemoteException {
     binder.setMediaItems(controllerId, BundleableUtil.toBundleList(mediaItems));
+  }
+
+  public void setMediaItemsIncludeLocalConfiguration(List<MediaItem> mediaItems)
+      throws RemoteException {
+    binder.setMediaItems(
+        controllerId,
+        BundleableUtil.toBundleList(mediaItems, MediaItem::toBundleIncludeLocalConfiguration));
   }
 
   public void setMediaItems(List<MediaItem> mediaItems, boolean resetPosition)
@@ -187,12 +200,23 @@ public class RemoteMediaController {
     binder.addMediaItem(controllerId, mediaItem.toBundle());
   }
 
+  public void addMediaItemIncludeLocalConfiguration(MediaItem mediaItem) throws RemoteException {
+    binder.addMediaItem(controllerId, mediaItem.toBundleIncludeLocalConfiguration());
+  }
+
   public void addMediaItem(int index, MediaItem mediaItem) throws RemoteException {
     binder.addMediaItemWithIndex(controllerId, index, mediaItem.toBundle());
   }
 
   public void addMediaItems(List<MediaItem> mediaItems) throws RemoteException {
     binder.addMediaItems(controllerId, BundleableUtil.toBundleList(mediaItems));
+  }
+
+  public void addMediaItemsIncludeLocalConfiguration(List<MediaItem> mediaItems)
+      throws RemoteException {
+    binder.addMediaItems(
+        controllerId,
+        BundleableUtil.toBundleList(mediaItems, MediaItem::toBundleIncludeLocalConfiguration));
   }
 
   public void addMediaItems(int index, List<MediaItem> mediaItems) throws RemoteException {
@@ -217,6 +241,16 @@ public class RemoteMediaController {
 
   public void moveMediaItems(int fromIndex, int toIndex, int newIndex) throws RemoteException {
     binder.moveMediaItems(controllerId, fromIndex, toIndex, newIndex);
+  }
+
+  public void replaceMediaItem(int index, MediaItem mediaItem) throws RemoteException {
+    binder.replaceMediaItem(controllerId, index, mediaItem.toBundle());
+  }
+
+  public void replaceMediaItems(int fromIndex, int toIndex, List<MediaItem> mediaItems)
+      throws RemoteException {
+    binder.replaceMediaItems(
+        controllerId, fromIndex, toIndex, BundleableUtil.toBundleList(mediaItems));
   }
 
   public void seekToPreviousMediaItem() throws RemoteException {
@@ -251,16 +285,32 @@ public class RemoteMediaController {
     binder.setDeviceVolume(controllerId, volume);
   }
 
+  public void setDeviceVolume(int volume, @C.VolumeFlags int flags) throws RemoteException {
+    binder.setDeviceVolumeWithFlags(controllerId, volume, flags);
+  }
+
   public void increaseDeviceVolume() throws RemoteException {
     binder.increaseDeviceVolume(controllerId);
+  }
+
+  public void increaseDeviceVolume(@C.VolumeFlags int flags) throws RemoteException {
+    binder.increaseDeviceVolumeWithFlags(controllerId, flags);
   }
 
   public void decreaseDeviceVolume() throws RemoteException {
     binder.decreaseDeviceVolume(controllerId);
   }
 
+  public void decreaseDeviceVolume(@C.VolumeFlags int flags) throws RemoteException {
+    binder.decreaseDeviceVolumeWithFlags(controllerId, flags);
+  }
+
   public void setDeviceMuted(boolean muted) throws RemoteException {
     binder.setDeviceMuted(controllerId, muted);
+  }
+
+  public void setDeviceMuted(boolean muted, @C.VolumeFlags int flags) throws RemoteException {
+    binder.setDeviceMutedWithFlags(controllerId, muted, flags);
   }
 
   public SessionResult sendCustomCommand(SessionCommand command, Bundle args)
@@ -300,6 +350,16 @@ public class RemoteMediaController {
         BundleableUtil.toBundleList(initialMediaItems),
         BundleableUtil.toBundleList(addedMediaItems),
         seekIndex);
+  }
+
+  public ImmutableList<CommandButton> getCustomLayout() throws RemoteException {
+    Bundle customLayoutBundle = binder.getCustomLayout(controllerId);
+    ArrayList<Bundle> list = customLayoutBundle.getParcelableArrayList(KEY_COMMAND_BUTTON_LIST);
+    ImmutableList.Builder<CommandButton> customLayout = new ImmutableList.Builder<>();
+    for (Bundle bundle : list) {
+      customLayout.add(CommandButton.CREATOR.fromBundle(bundle));
+    }
+    return customLayout.build();
   }
 
   ////////////////////////////////////////////////////////////////////////////////

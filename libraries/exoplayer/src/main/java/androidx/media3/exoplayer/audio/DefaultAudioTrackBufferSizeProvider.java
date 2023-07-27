@@ -44,14 +44,19 @@ public class DefaultAudioTrackBufferSizeProvider
 
   /** Default minimum length for the {@link AudioTrack} buffer, in microseconds. */
   private static final int MIN_PCM_BUFFER_DURATION_US = 250_000;
+
   /** Default maximum length for the {@link AudioTrack} buffer, in microseconds. */
   private static final int MAX_PCM_BUFFER_DURATION_US = 750_000;
+
   /** Default multiplication factor to apply to the minimum buffer size requested. */
   private static final int PCM_BUFFER_MULTIPLICATION_FACTOR = 4;
+
   /** Default length for passthrough {@link AudioTrack} buffers, in microseconds. */
   private static final int PASSTHROUGH_BUFFER_DURATION_US = 250_000;
+
   /** Default length for offload {@link AudioTrack} buffers, in microseconds. */
   private static final int OFFLOAD_BUFFER_DURATION_US = 50_000_000;
+
   /**
    * Default multiplication factor to apply to AC3 passthrough buffer to avoid underruns on some
    * devices (e.g., Broadcom 7271).
@@ -146,14 +151,19 @@ public class DefaultAudioTrackBufferSizeProvider
 
   /** The minimum length for PCM {@link AudioTrack} buffers, in microseconds. */
   protected final int minPcmBufferDurationUs;
+
   /** The maximum length for PCM {@link AudioTrack} buffers, in microseconds. */
   protected final int maxPcmBufferDurationUs;
+
   /** The multiplication factor to apply to the minimum buffer size requested. */
   protected final int pcmBufferMultiplicationFactor;
+
   /** The length for passthrough {@link AudioTrack} buffers, in microseconds. */
   protected final int passthroughBufferDurationUs;
+
   /** The length for offload {@link AudioTrack} buffers, in microseconds. */
   protected final int offloadBufferDurationUs;
+
   /**
    * The multiplication factor to apply to AC3 passthrough buffer to avoid underruns on some devices
    * (e.g., Broadcom 7271).
@@ -272,7 +282,9 @@ public class DefaultAudioTrackBufferSizeProvider
       case C.ENCODING_PCM_16BIT:
       case C.ENCODING_PCM_16BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_24BIT:
+      case C.ENCODING_PCM_24BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_32BIT:
+      case C.ENCODING_PCM_32BIT_BIG_ENDIAN:
       case C.ENCODING_PCM_8BIT:
       case C.ENCODING_PCM_FLOAT:
       case C.ENCODING_AAC_ER_BSAC:

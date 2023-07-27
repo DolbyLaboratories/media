@@ -60,6 +60,7 @@ public final class MimeTypes {
   public static final String VIDEO_MJPEG = BASE_TYPE_VIDEO + "/mjpeg";
   public static final String VIDEO_MP42 = BASE_TYPE_VIDEO + "/mp42";
   public static final String VIDEO_MP43 = BASE_TYPE_VIDEO + "/mp43";
+  @UnstableApi public static final String VIDEO_RAW = BASE_TYPE_VIDEO + "/raw";
   @UnstableApi public static final String VIDEO_UNKNOWN = BASE_TYPE_VIDEO + "/x-unknown";
 
   // audio/ MIME types
@@ -130,7 +131,13 @@ public final class MimeTypes {
   public static final String APPLICATION_TX3G = BASE_TYPE_APPLICATION + "/x-quicktime-tx3g";
   public static final String APPLICATION_MP4VTT = BASE_TYPE_APPLICATION + "/x-mp4-vtt";
   public static final String APPLICATION_MP4CEA608 = BASE_TYPE_APPLICATION + "/x-mp4-cea-608";
-  public static final String APPLICATION_RAWCC = BASE_TYPE_APPLICATION + "/x-rawcc";
+
+  /**
+   * @deprecated RawCC is a Google-internal subtitle format that isn't supported by this version of
+   *     Media3. There is no replacement for this value.
+   */
+  @Deprecated public static final String APPLICATION_RAWCC = BASE_TYPE_APPLICATION + "/x-rawcc";
+
   public static final String APPLICATION_VOBSUB = BASE_TYPE_APPLICATION + "/vobsub";
   public static final String APPLICATION_PGS = BASE_TYPE_APPLICATION + "/pgs";
   @UnstableApi public static final String APPLICATION_SCTE35 = BASE_TYPE_APPLICATION + "/x-scte35";
@@ -227,7 +234,8 @@ public final class MimeTypes {
   /**
    * Returns true if it is known that all samples in a stream of the given MIME type and codec are
    * guaranteed to be sync samples (i.e., {@link C#BUFFER_FLAG_KEY_FRAME} is guaranteed to be set on
-   * every sample).
+   * every sample) and the inherent duration of each sample is negligible (i.e., we never expect to
+   * require a sample because playback partially falls into its duration).
    *
    * @param mimeType The MIME type of the stream.
    * @param codec The RFC 6381 codec string of the stream, or {@code null} if unknown.
@@ -514,6 +522,8 @@ public final class MimeTypes {
         return MimeTypes.AUDIO_OPUS;
       case 0xAE:
         return MimeTypes.AUDIO_AC4;
+      case 0xDD:
+        return MimeTypes.AUDIO_VORBIS;
       default:
         return null;
     }
@@ -585,6 +595,10 @@ public final class MimeTypes {
         return C.ENCODING_DTS;
       case MimeTypes.AUDIO_DTS_HD:
         return C.ENCODING_DTS_HD;
+      case MimeTypes.AUDIO_DTS_EXPRESS:
+        return C.ENCODING_DTS_HD;
+      case MimeTypes.AUDIO_DTS_X:
+        return C.ENCODING_DTS_UHD_P2;
       case MimeTypes.AUDIO_TRUEHD:
         return C.ENCODING_DOLBY_TRUEHD;
       case MimeTypes.AUDIO_OPUS:
@@ -728,6 +742,7 @@ public final class MimeTypes {
   /* package */ static final class Mp4aObjectType {
     /** The Object Type Indication of the MP4A codec. */
     public final int objectTypeIndication;
+
     /** The Audio Object Type Indication of the MP4A codec, or 0 if it is absent. */
     public final int audioObjectTypeIndication;
 

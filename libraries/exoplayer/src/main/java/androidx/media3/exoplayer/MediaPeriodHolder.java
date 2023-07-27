@@ -23,6 +23,7 @@ import androidx.media3.common.Format;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.exoplayer.source.ClippingMediaPeriod;
 import androidx.media3.exoplayer.source.EmptySampleStream;
 import androidx.media3.exoplayer.source.MediaPeriod;
@@ -33,7 +34,6 @@ import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.media3.exoplayer.trackselection.TrackSelector;
 import androidx.media3.exoplayer.trackselection.TrackSelectorResult;
 import androidx.media3.exoplayer.upstream.Allocator;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 
 /** Holds a {@link MediaPeriod} with information required to play it as part of a timeline. */
 /* package */ final class MediaPeriodHolder {
@@ -42,8 +42,10 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
 
   /** The {@link MediaPeriod} wrapped by this class. */
   public final MediaPeriod mediaPeriod;
+
   /** The unique timeline period identifier the media period belongs to. */
   public final Object uid;
+
   /**
    * The sample streams for each renderer associated with this period. May contain null elements.
    */
@@ -51,10 +53,13 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
 
   /** Whether the media period has finished preparing. */
   public boolean prepared;
+
   /** Whether any of the tracks of this media period are enabled. */
   public boolean hasEnabledTracks;
+
   /** {@link MediaPeriodInfo} about this media period. */
   public MediaPeriodInfo info;
+
   /**
    * Whether all renderers are in the correct state for this {@link #mediaPeriod}.
    *

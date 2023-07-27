@@ -15,13 +15,17 @@
  */
 package androidx.media3.transformer;
 
+import androidx.media3.common.C;
 import androidx.media3.common.Format;
+import androidx.media3.common.Metadata;
 import androidx.media3.test.utils.DumpableFormat;
 import androidx.media3.test.utils.Dumper;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * An implementation of {@link Muxer} that supports dumping information about all interactions (for
@@ -31,12 +35,14 @@ import java.util.List;
 public final class TestMuxer implements Muxer, Dumper.Dumpable {
 
   private final Muxer muxer;
+  private final Map<Integer, List<DumpableSample>> trackIndexToSampleDumpables;
   private final List<Dumper.Dumpable> dumpables;
 
   /** Creates a new test muxer. */
   public TestMuxer(String path, Muxer.Factory muxerFactory) throws MuxerException {
     muxer = muxerFactory.create(path);
     dumpables = new ArrayList<>();
+    trackIndexToSampleDumpables = new HashMap<>();
   }
 
   // Muxer implementation.
@@ -45,19 +51,36 @@ public final class TestMuxer implements Muxer, Dumper.Dumpable {
   public int addTrack(Format format) throws MuxerException {
     int trackIndex = muxer.addTrack(format);
     dumpables.add(new DumpableFormat(format, trackIndex));
+    trackIndexToSampleDumpables.put(trackIndex, new ArrayList<>());
     return trackIndex;
   }
 
   @Override
   public void writeSampleData(
-      int trackIndex, ByteBuffer data, boolean isKeyFrame, long presentationTimeUs)
+      int trackIndex, ByteBuffer data, long presentationTimeUs, @C.BufferFlags int flags)
       throws MuxerException {
-    dumpables.add(new DumpableSample(trackIndex, data, isKeyFrame, presentationTimeUs));
-    muxer.writeSampleData(trackIndex, data, isKeyFrame, presentationTimeUs);
+    trackIndexToSampleDumpables
+        .get(trackIndex)
+        .add(
+            new DumpableSample(
+                trackIndex,
+                data,
+                (flags & C.BUFFER_FLAG_KEY_FRAME) == C.BUFFER_FLAG_KEY_FRAME,
+                presentationTimeUs));
+    muxer.writeSampleData(trackIndex, data, presentationTimeUs, flags);
+  }
+
+  @Override
+  public void addMetadata(Metadata metadata) {
+    dumpables.add(dumper -> dumper.add("container metadata", metadata));
+    muxer.addMetadata(metadata);
   }
 
   @Override
   public void release(boolean forCancellation) throws MuxerException {
+    for (List<DumpableSample> value : trackIndexToSampleDumpables.values()) {
+      dumpables.addAll(value);
+    }
     dumpables.add(dumper -> dumper.add("released", true));
     muxer.release(forCancellation);
   }

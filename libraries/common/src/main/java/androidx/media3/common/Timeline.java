@@ -37,6 +37,9 @@ import com.google.errorprone.annotations.InlineMe;
 import java.util.ArrayList;
 import java.util.List;
 
+// TODO: b/288080357 - Replace developer.android.com fully-qualified SVG URLs below with relative
+// URLs once we stop publishing exoplayer2 javadoc.
+
 /**
  * A flexible representation of the structure of media. A timeline is able to represent the
  * structure of a wide variety of media, from simple cases like a single media file through to
@@ -62,7 +65,7 @@ import java.util.List;
  * <h2 id="single-file">Single media file or on-demand stream</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-single-file.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-single-file.svg"
  * alt="Example timeline for a single file">
  *
  * <p>A timeline for a single media file or on-demand stream consists of a single period and window.
@@ -73,7 +76,7 @@ import java.util.List;
  * <h2>Playlist of media files or on-demand streams</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-playlist.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-playlist.svg"
  * alt="Example timeline for a playlist of files">
  *
  * <p>A timeline for a playlist of media files or on-demand streams consists of multiple periods,
@@ -85,7 +88,7 @@ import java.util.List;
  * <h2 id="live-limited">Live stream with limited availability</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-live-limited.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-live-limited.svg"
  * alt="Example timeline for a live stream with limited availability">
  *
  * <p>A timeline for a live stream consists of a period whose duration is unknown, since it's
@@ -99,7 +102,7 @@ import java.util.List;
  * <h2>Live stream with indefinite availability</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-live-indefinite.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-live-indefinite.svg"
  * alt="Example timeline for a live stream with indefinite availability">
  *
  * <p>A timeline for a live stream with indefinite availability is similar to the <a
@@ -110,7 +113,7 @@ import java.util.List;
  * <h2 id="live-multi-period">Live stream with multiple periods</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-live-multi-period.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-live-multi-period.svg"
  * alt="Example timeline for a live stream with multiple periods">
  *
  * <p>This case arises when a live stream is explicitly divided into separate periods, for example
@@ -121,7 +124,7 @@ import java.util.List;
  * <h2>On-demand stream followed by live stream</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-advanced.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-advanced.svg"
  * alt="Example timeline for an on-demand stream followed by a live stream">
  *
  * <p>This case is the concatenation of the <a href="#single-file">Single media file or on-demand
@@ -132,14 +135,12 @@ import java.util.List;
  * <h2 id="single-file-midrolls">On-demand stream with mid-roll ads</h2>
  *
  * <p style="align:center"><img
- * src="https://exoplayer.dev/doc/reference/com/google/android/exoplayer2/doc-files/timeline-single-file-midrolls.svg"
+ * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-single-file-midrolls.svg"
  * alt="Example timeline for an on-demand stream with mid-roll ad groups">
  *
  * <p>This case includes mid-roll ad groups, which are defined as part of the timeline's single
  * period. The period can be queried for information about the ad groups and the ads they contain.
  */
-// TODO(b/276289331): Revert to media3-hosted SVG links above once they're available on
-// developer.android.com.
 public abstract class Timeline implements Bundleable {
 
   /**
@@ -149,8 +150,9 @@ public abstract class Timeline implements Bundleable {
    * shows some of the information defined by a window, as well as how this information relates to
    * corresponding {@link Period Periods} in the timeline.
    *
-   * <p style="align:center"><img src="doc-files/timeline-window.svg" alt="Information defined by a
-   * timeline window">
+   * <p style="align:center"><img
+   * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-window.svg"
+   * alt="Information defined by a timeline window">
    */
   public static final class Window implements Bundleable {
 
@@ -557,8 +559,9 @@ public abstract class Timeline implements Bundleable {
    * <p>The figure below shows some of the information defined by a period, as well as how this
    * information relates to a corresponding {@link Window} in the timeline.
    *
-   * <p style="align:center"><img src="doc-files/timeline-period.svg" alt="Information defined by a
-   * period">
+   * <p style="align:center"><img
+   * src="https://developer.android.com/static/images/reference/androidx/media3/common/timeline-period.svg"
+   * alt="Information defined by a period">
    */
   public static final class Period implements Bundleable {
 
@@ -832,6 +835,18 @@ public abstract class Timeline implements Bundleable {
       return adGroup.count != C.LENGTH_UNSET
           ? adGroup.states[adIndexInAdGroup]
           : AD_STATE_UNAVAILABLE;
+    }
+
+    /**
+     * Returns whether the ad group at the given ad group index is a live postroll placeholder.
+     *
+     * @param adGroupIndex The ad group index.
+     * @return True if the ad group at the given index is a live postroll placeholder.
+     */
+    @UnstableApi
+    public boolean isLivePostrollPlaceholder(int adGroupIndex) {
+      return adGroupIndex == getAdGroupCount() - 1
+          && adPlaybackState.isLivePostrollPlaceholder(adGroupIndex);
     }
 
     /**
@@ -1173,6 +1188,7 @@ public abstract class Timeline implements Bundleable {
       Window window, Period period, int windowIndex, long windowPositionUs) {
     return getPeriodPositionUs(window, period, windowIndex, windowPositionUs);
   }
+
   /**
    * @deprecated Use {@link #getPeriodPositionUs(Window, Period, int, long, long)} instead.
    */

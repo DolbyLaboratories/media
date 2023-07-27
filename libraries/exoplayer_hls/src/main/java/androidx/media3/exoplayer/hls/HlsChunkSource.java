@@ -47,7 +47,10 @@ import androidx.media3.exoplayer.source.chunk.MediaChunk;
 import androidx.media3.exoplayer.source.chunk.MediaChunkIterator;
 import androidx.media3.exoplayer.trackselection.BaseTrackSelection;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
+import androidx.media3.exoplayer.upstream.CmcdConfiguration;
+import androidx.media3.exoplayer.upstream.CmcdLog;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.primitives.Ints;
 import java.io.IOException;
@@ -104,8 +107,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
   /** Indicates that the chunk is based on a preload hint. */
   public static final int CHUNK_PUBLICATION_STATE_PRELOAD = 0;
+
   /** Indicates that the chunk is definitely published. */
   public static final int CHUNK_PUBLICATION_STATE_PUBLISHED = 1;
+
   /**
    * Indicates that the chunk has been removed from the playlist.
    *
@@ -130,8 +135,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Nullable private final List<Format> muxedCaptionFormats;
   private final FullSegmentEncryptionKeyCache keyCache;
   private final PlayerId playerId;
+  @Nullable private final CmcdConfiguration cmcdConfiguration;
+  private final long timestampAdjusterInitializationTimeoutMs;
 
-  private boolean isTimestampMaster;
+  private boolean isPrimaryTimestampSource;
   private byte[] scratchSpace;
   @Nullable private IOException fatalError;
   @Nullable private Uri expectedPlaylistUrl;
@@ -158,6 +165,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    * @param timestampAdjusterProvider A provider of {@link TimestampAdjuster} instances. If multiple
    *     {@link HlsChunkSource}s are used for a single playback, they should all share the same
    *     provider.
+   * @param timestampAdjusterInitializationTimeoutMs The timeout for the loading thread to wait for
+   *     the timestamp adjuster to initialize, in milliseconds. A timeout of zero is interpreted as
+   *     an infinite timeout.
    * @param muxedCaptionFormats List of muxed caption {@link Format}s. Null if no closed caption
    *     information is available in the multivariant playlist.
    */
@@ -169,15 +179,19 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       HlsDataSourceFactory dataSourceFactory,
       @Nullable TransferListener mediaTransferListener,
       TimestampAdjusterProvider timestampAdjusterProvider,
+      long timestampAdjusterInitializationTimeoutMs,
       @Nullable List<Format> muxedCaptionFormats,
-      PlayerId playerId) {
+      PlayerId playerId,
+      @Nullable CmcdConfiguration cmcdConfiguration) {
     this.extractorFactory = extractorFactory;
     this.playlistTracker = playlistTracker;
     this.playlistUrls = playlistUrls;
     this.playlistFormats = playlistFormats;
     this.timestampAdjusterProvider = timestampAdjusterProvider;
+    this.timestampAdjusterInitializationTimeoutMs = timestampAdjusterInitializationTimeoutMs;
     this.muxedCaptionFormats = muxedCaptionFormats;
     this.playerId = playerId;
+    this.cmcdConfiguration = cmcdConfiguration;
     keyCache = new FullSegmentEncryptionKeyCache(KEY_CACHE_SIZE);
     scratchSpace = Util.EMPTY_BYTE_ARRAY;
     liveEdgeInPeriodTimeUs = C.TIME_UNSET;
@@ -240,11 +254,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   /**
    * Sets whether this chunk source is responsible for initializing timestamp adjusters.
    *
-   * @param isTimestampMaster True if this chunk source is responsible for initializing timestamp
-   *     adjusters.
+   * @param isPrimaryTimestampSource True if this chunk source is responsible for initializing
+   *     timestamp adjusters.
    */
-  public void setIsTimestampMaster(boolean isTimestampMaster) {
-    this.isTimestampMaster = isTimestampMaster;
+  public void setIsPrimaryTimestampSource(boolean isPrimaryTimestampSource) {
+    this.isPrimaryTimestampSource = isPrimaryTimestampSource;
   }
 
   /**
@@ -467,17 +481,36 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     seenExpectedPlaylistError = false;
     expectedPlaylistUrl = null;
 
+    long chunkDurationUs = C.TIME_UNSET;
+    if (selectedTrackIndex < mediaChunkIterators.length
+        && mediaChunkIterators[selectedTrackIndex].next()) {
+      chunkDurationUs =
+          mediaChunkIterators[selectedTrackIndex].getChunkEndTimeUs()
+              - mediaChunkIterators[selectedTrackIndex].getChunkStartTimeUs();
+    }
+    @Nullable
+    CmcdLog cmcdLog =
+        cmcdConfiguration == null
+            ? null
+            : CmcdLog.createInstance(
+                cmcdConfiguration,
+                trackSelection,
+                bufferedDurationUs,
+                chunkDurationUs,
+                CmcdLog.STREAMING_FORMAT_HLS,
+                !playlist.hasEndTag);
+
     // Check if the media segment or its initialization segment are fully encrypted.
     @Nullable
     Uri initSegmentKeyUri =
         getFullEncryptionKeyUri(playlist, segmentBaseHolder.segmentBase.initializationSegment);
-    out.chunk = maybeCreateEncryptionChunkFor(initSegmentKeyUri, selectedTrackIndex);
+    out.chunk = maybeCreateEncryptionChunkFor(initSegmentKeyUri, selectedTrackIndex, cmcdLog);
     if (out.chunk != null) {
       return;
     }
     @Nullable
     Uri mediaSegmentKeyUri = getFullEncryptionKeyUri(playlist, segmentBaseHolder.segmentBase);
-    out.chunk = maybeCreateEncryptionChunkFor(mediaSegmentKeyUri, selectedTrackIndex);
+    out.chunk = maybeCreateEncryptionChunkFor(mediaSegmentKeyUri, selectedTrackIndex, cmcdLog);
     if (out.chunk != null) {
       return;
     }
@@ -505,13 +538,15 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
             muxedCaptionFormats,
             trackSelection.getSelectionReason(),
             trackSelection.getSelectionData(),
-            isTimestampMaster,
+            isPrimaryTimestampSource,
             timestampAdjusterProvider,
+            timestampAdjusterInitializationTimeoutMs,
             previous,
             /* mediaSegmentKey= */ keyCache.get(mediaSegmentKeyUri),
             /* initSegmentKey= */ keyCache.get(initSegmentKeyUri),
             shouldSpliceIn,
-            playerId);
+            playerId,
+            cmcdLog);
   }
 
   @Nullable
@@ -573,7 +608,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
    * @return Whether the exclusion succeeded.
    */
   public boolean maybeExcludeTrack(Chunk chunk, long exclusionDurationMs) {
-    return trackSelection.blacklist(
+    return trackSelection.excludeTrack(
         trackSelection.indexOf(trackGroup.indexOf(chunk.trackFormat)), exclusionDurationMs);
   }
 
@@ -602,7 +637,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
     seenExpectedPlaylistError |= playlistUrl.equals(expectedPlaylistUrl);
     return exclusionDurationMs == C.TIME_UNSET
-        || (trackSelection.blacklist(trackSelectionIndex, exclusionDurationMs)
+        || (trackSelection.excludeTrack(trackSelectionIndex, exclusionDurationMs)
             && playlistTracker.excludeMediaPlaylist(playlistUrl, exclusionDurationMs));
   }
 
@@ -818,7 +853,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   }
 
   @Nullable
-  private Chunk maybeCreateEncryptionChunkFor(@Nullable Uri keyUri, int selectedTrackIndex) {
+  private Chunk maybeCreateEncryptionChunkFor(
+      @Nullable Uri keyUri, int selectedTrackIndex, @Nullable CmcdLog cmcdLog) {
     if (keyUri == null) {
       return null;
     }
@@ -831,8 +867,14 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       keyCache.put(keyUri, encryptionKey);
       return null;
     }
+    ImmutableMap<@CmcdConfiguration.HeaderKey String, String> httpRequestHeaders =
+        cmcdLog == null ? ImmutableMap.of() : cmcdLog.getHttpRequestHeaders();
     DataSpec dataSpec =
-        new DataSpec.Builder().setUri(keyUri).setFlags(DataSpec.FLAG_ALLOW_GZIP).build();
+        new DataSpec.Builder()
+            .setUri(keyUri)
+            .setFlags(DataSpec.FLAG_ALLOW_GZIP)
+            .setHttpRequestHeaders(httpRequestHeaders)
+            .build();
     return new EncryptionKeyChunk(
         encryptionDataSource,
         dataSpec,
@@ -894,12 +936,12 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         List<? extends MediaChunk> queue,
         MediaChunkIterator[] mediaChunkIterators) {
       long nowMs = SystemClock.elapsedRealtime();
-      if (!isBlacklisted(selectedIndex, nowMs)) {
+      if (!isTrackExcluded(selectedIndex, nowMs)) {
         return;
       }
       // Try from lowest bitrate to highest.
       for (int i = length - 1; i >= 0; i--) {
-        if (!isBlacklisted(i, nowMs)) {
+        if (!isTrackExcluded(i, nowMs)) {
           selectedIndex = i;
           return;
         }

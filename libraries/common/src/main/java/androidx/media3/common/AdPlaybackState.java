@@ -30,6 +30,7 @@ import androidx.annotation.CheckResult;
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import java.lang.annotation.Documented;
@@ -38,7 +39,6 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.ArrayList;
 import java.util.Arrays;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 
 /**
  * Represents ad group times and information on the state and URIs of ads within each ad group.
@@ -62,8 +62,10 @@ public final class AdPlaybackState implements Bundleable {
      * C#TIME_END_OF_SOURCE} to indicate a postroll ad.
      */
     public final long timeUs;
+
     /** The number of ads in the ad group, or {@link C#LENGTH_UNSET} if unknown. */
     public final int count;
+
     /**
      * The original number of ads in the ad group in case the ad group is only partially available,
      * or {@link C#LENGTH_UNSET} if unknown. An ad can be partially available when a server side
@@ -71,17 +73,22 @@ public final class AdPlaybackState implements Bundleable {
      * missing.
      */
     public final int originalCount;
+
     /** The URI of each ad in the ad group. */
     public final @NullableType Uri[] uris;
+
     /** The state of each ad in the ad group. */
     public final @AdState int[] states;
+
     /** The durations of each ad in the ad group, in microseconds. */
     public final long[] durationsUs;
+
     /**
      * The offset in microseconds which should be added to the content stream when resuming playback
      * after the ad group.
      */
     public final long contentResumeOffsetUs;
+
     /** Whether this ad group is server-side inserted and part of the content stream. */
     public final boolean isServerSideInserted;
 
@@ -170,6 +177,10 @@ public final class AdPlaybackState implements Bundleable {
         }
       }
       return false;
+    }
+
+    private boolean isLivePostrollPlaceholder() {
+      return isServerSideInserted && timeUs == C.TIME_END_OF_SOURCE && count == C.LENGTH_UNSET;
     }
 
     @Override
@@ -531,14 +542,19 @@ public final class AdPlaybackState implements Bundleable {
     AD_STATE_ERROR,
   })
   public @interface AdState {}
+
   /** State for an ad that does not yet have a URL. */
   public static final int AD_STATE_UNAVAILABLE = 0;
+
   /** State for an ad that has a URL but has not yet been played. */
   public static final int AD_STATE_AVAILABLE = 1;
+
   /** State for an ad that was skipped. */
   public static final int AD_STATE_SKIPPED = 2;
+
   /** State for an ad that was played in full. */
   public static final int AD_STATE_PLAYED = 3;
+
   /** State for an ad that could not be loaded. */
   public static final int AD_STATE_ERROR = 4;
 
@@ -560,12 +576,15 @@ public final class AdPlaybackState implements Bundleable {
 
   /** The number of ad groups. */
   public final int adGroupCount;
+
   /** The position offset in the first unplayed ad at which to begin playback, in microseconds. */
   public final long adResumePositionUs;
+
   /**
    * The duration of the content period in microseconds, if known. {@link C#TIME_UNSET} otherwise.
    */
   public final long contentDurationUs;
+
   /**
    * The number of ad groups that have been removed. Ad groups with indices between {@code 0}
    * (inclusive) and {@code removedAdGroupCount} (exclusive) will be empty and must not be modified
@@ -629,6 +648,7 @@ public final class AdPlaybackState implements Bundleable {
     // Use a linear search as the array elements may not be increasing due to TIME_END_OF_SOURCE.
     // In practice we expect there to be few ad groups so the search shouldn't be expensive.
     int index = adGroupCount - 1;
+    index -= isLivePostrollPlaceholder(index) ? 1 : 0;
     while (index >= 0 && isPositionBeforeAdGroup(positionUs, periodDurationUs, index)) {
       index--;
     }
@@ -977,6 +997,49 @@ public final class AdPlaybackState implements Bundleable {
   }
 
   /**
+   * Appends a live postroll placeholder ad group to the ad playback state.
+   *
+   * <p>Adding such a placeholder is only required for periods of server side ad insertion live
+   * streams.
+   *
+   * <p>When building the media period queue, it sets {@link MediaPeriodId#nextAdGroupIndex} of a
+   * content period to the index of the placeholder. However, the placeholder will not produce a
+   * period in the media period queue. This only happens when an actual ad group is inserted at the
+   * given {@code nextAdGroupIndex}. In this case the newly inserted ad group will be used to insert
+   * an ad period into the media period queue following the content period with the given {@link
+   * MediaPeriodId#nextAdGroupIndex}.
+   *
+   * <p>See {@link #endsWithLivePostrollPlaceHolder()} also.
+   *
+   * @return The new ad playback state instance ending with a live postroll placeholder.
+   */
+  public AdPlaybackState withLivePostrollPlaceholderAppended() {
+    return withNewAdGroup(adGroupCount, /* adGroupTimeUs= */ C.TIME_END_OF_SOURCE)
+        .withIsServerSideInserted(adGroupCount, true);
+  }
+
+  /**
+   * Returns whether the last ad group is a live postroll placeholder as inserted by {@link
+   * #withLivePostrollPlaceholderAppended()}.
+   *
+   * @return Whether the ad playback state ends with a live postroll placeholder.
+   */
+  public boolean endsWithLivePostrollPlaceHolder() {
+    int adGroupIndex = adGroupCount - 1;
+    return adGroupIndex >= 0 && isLivePostrollPlaceholder(adGroupIndex);
+  }
+
+  /**
+   * Whether the {@link AdGroup} at the given ad group index is a live postroll placeholder.
+   *
+   * @param adGroupIndex The ad group index.
+   * @return True if the ad group at the given index is a live postroll placeholder, false if not.
+   */
+  public boolean isLivePostrollPlaceholder(int adGroupIndex) {
+    return adGroupIndex == adGroupCount - 1 && getAdGroup(adGroupIndex).isLivePostrollPlaceholder();
+  }
+
+  /**
    * Returns a copy of the ad playback state with the given ads ID.
    *
    * @param adsId The new ads ID.
@@ -1088,15 +1151,21 @@ public final class AdPlaybackState implements Bundleable {
   private boolean isPositionBeforeAdGroup(
       long positionUs, long periodDurationUs, int adGroupIndex) {
     if (positionUs == C.TIME_END_OF_SOURCE) {
-      // The end of the content is at (but not before) any postroll ad, and after any other ads.
+      // The end of the content is at (but not before) any postroll ad, and after any other ad.
       return false;
     }
-    long adGroupPositionUs = getAdGroup(adGroupIndex).timeUs;
+    AdGroup adGroup = getAdGroup(adGroupIndex);
+    long adGroupPositionUs = adGroup.timeUs;
     if (adGroupPositionUs == C.TIME_END_OF_SOURCE) {
-      return periodDurationUs == C.TIME_UNSET || positionUs < periodDurationUs;
-    } else {
-      return positionUs < adGroupPositionUs;
+      // Handling postroll: The requested position is considered before a postroll when a)
+      // the period duration is unknown (last period in a live stream), or when b) the postroll is a
+      // placeholder in a period of a multi-period live window, or when c) the position actually is
+      // before the given period duration.
+      return periodDurationUs == C.TIME_UNSET
+          || (adGroup.isServerSideInserted && adGroup.count == C.LENGTH_UNSET)
+          || positionUs < periodDurationUs;
     }
+    return positionUs < adGroupPositionUs;
   }
 
   // Bundleable implementation.

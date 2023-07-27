@@ -84,12 +84,16 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Target(TYPE_USE)
   @IntDef({RTSP_STATE_UNINITIALIZED, RTSP_STATE_INIT, RTSP_STATE_READY, RTSP_STATE_PLAYING})
   public @interface RtspState {}
+
   /** RTSP uninitialized state, the state before sending any SETUP request. */
   public static final int RTSP_STATE_UNINITIALIZED = -1;
+
   /** RTSP initial state, the state after sending SETUP REQUEST. */
   public static final int RTSP_STATE_INIT = 0;
+
   /** RTSP ready state, the state after receiving SETUP, or PAUSE response. */
   public static final int RTSP_STATE_READY = 1;
+
   /** RTSP playing state, the state after receiving PLAY response. */
   public static final int RTSP_STATE_PLAYING = 2;
 
@@ -100,6 +104,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public interface SessionInfoListener {
     /** Called when the session information is available. */
     void onSessionTimelineUpdated(RtspSessionTiming timing, ImmutableList<RtspMediaTrack> tracks);
+
     /**
      * Called when failed to get session information from the RTSP server, or when error happened
      * during updating the session timeline.
@@ -230,6 +235,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     messageSender.sendPlayRequest(uri, offsetMs, checkNotNull(sessionId));
   }
 
+  public void signalPlaybackEnded() {
+    rtspState = RTSP_STATE_READY;
+  }
+
   /**
    * Seeks to a specific time using RTSP.
    *
@@ -333,19 +342,22 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   }
 
   /**
-   * Gets the included {@link RtspMediaTrack RtspMediaTracks} from a {@link SessionDescription}.
+   * Returns the included {@link RtspMediaTrack RtspMediaTracks} from parsing the {@link
+   * SessionDescription} within the {@link RtspDescribeResponse}.
    *
-   * @param sessionDescription The {@link SessionDescription}.
+   * @param rtspDescribeResponse The {@link RtspDescribeResponse} from which to retrieve the tracks.
    * @param uri The RTSP playback URI.
    */
   private static ImmutableList<RtspMediaTrack> buildTrackList(
-      SessionDescription sessionDescription, Uri uri) {
+      RtspDescribeResponse rtspDescribeResponse, Uri uri) {
     ImmutableList.Builder<RtspMediaTrack> trackListBuilder = new ImmutableList.Builder<>();
-    for (int i = 0; i < sessionDescription.mediaDescriptionList.size(); i++) {
-      MediaDescription mediaDescription = sessionDescription.mediaDescriptionList.get(i);
+    for (int i = 0; i < rtspDescribeResponse.sessionDescription.mediaDescriptionList.size(); i++) {
+      MediaDescription mediaDescription =
+          rtspDescribeResponse.sessionDescription.mediaDescriptionList.get(i);
       // Includes tracks with supported formats only.
       if (RtpPayloadFormat.isFormatSupported(mediaDescription)) {
-        trackListBuilder.add(new RtspMediaTrack(mediaDescription, uri));
+        trackListBuilder.add(
+            new RtspMediaTrack(rtspDescribeResponse.headers, mediaDescription, uri));
       }
     }
     return trackListBuilder.build();
@@ -614,7 +626,9 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
           case METHOD_DESCRIBE:
             onDescribeResponseReceived(
                 new RtspDescribeResponse(
-                    response.status, SessionDescriptionParser.parse(response.messageBody)));
+                    response.headers,
+                    response.status,
+                    SessionDescriptionParser.parse(response.messageBody)));
             break;
 
           case METHOD_SETUP:
@@ -704,7 +718,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         }
       }
 
-      ImmutableList<RtspMediaTrack> tracks = buildTrackList(response.sessionDescription, uri);
+      ImmutableList<RtspMediaTrack> tracks = buildTrackList(response, uri);
       if (tracks.isEmpty()) {
         sessionInfoListener.onSessionTimelineRequestFailed("No playable track.", /* cause= */ null);
         return;
@@ -723,7 +737,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
 
     private void onPlayResponseReceived(RtspPlayResponse response) {
-      checkState(rtspState == RTSP_STATE_READY);
+      checkState(rtspState == RTSP_STATE_READY || rtspState == RTSP_STATE_PLAYING);
 
       rtspState = RTSP_STATE_PLAYING;
       if (keepAliveMonitor == null) {

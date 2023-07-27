@@ -33,6 +33,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.ParserException;
 import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.UriUtil;
 import androidx.media3.common.util.Util;
@@ -56,7 +57,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.checkerframework.checker.nullness.compatqual.NullableType;
 import org.xml.sax.helpers.DefaultHandler;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -393,7 +393,7 @@ public class DashManifestParser extends DefaultHandler
       long timeShiftBufferDepthMs,
       boolean dvbProfileDeclared)
       throws XmlPullParserException, IOException {
-    int id = parseInt(xpp, "id", AdaptationSet.ID_UNSET);
+    long id = parseLong(xpp, "id", AdaptationSet.ID_UNSET);
     @C.TrackType int contentType = parseContentType(xpp);
 
     String mimeType = xpp.getAttributeValue(null, "mimeType");
@@ -532,7 +532,7 @@ public class DashManifestParser extends DefaultHandler
   }
 
   protected AdaptationSet buildAdaptationSet(
-      int id,
+      long id,
       @C.TrackType int contentType,
       List<Representation> representations,
       List<Descriptor> accessibilityDescriptors,

@@ -63,6 +63,7 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
 
   /** The first three bytes of a well formed ID3 tag header. */
   public static final int ID3_TAG = 0x00494433;
+
   /** Length of an ID3 tag header. */
   public static final int ID3_HEADER_LENGTH = 10;
 
@@ -659,11 +660,11 @@ public final class Id3Decoder extends SimpleMetadataDecoder {
     int endTime = id3Data.readInt();
     long startOffset = id3Data.readUnsignedInt();
     if (startOffset == 0xFFFFFFFFL) {
-      startOffset = C.POSITION_UNSET;
+      startOffset = C.INDEX_UNSET;
     }
     long endOffset = id3Data.readUnsignedInt();
     if (endOffset == 0xFFFFFFFFL) {
-      endOffset = C.POSITION_UNSET;
+      endOffset = C.INDEX_UNSET;
     }
 
     ArrayList<Id3Frame> subFrames = new ArrayList<>();

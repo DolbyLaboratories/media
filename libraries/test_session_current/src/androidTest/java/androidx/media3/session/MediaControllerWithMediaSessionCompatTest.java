@@ -68,6 +68,7 @@ import androidx.media3.common.Player.PositionInfo;
 import androidx.media3.common.Player.RepeatMode;
 import androidx.media3.common.Player.State;
 import androidx.media3.common.Timeline;
+import androidx.media3.common.util.BitmapLoader;
 import androidx.media3.common.util.Util;
 import androidx.media3.test.session.common.HandlerThreadTestRule;
 import androidx.media3.test.session.common.MainLooperTestRule;
@@ -136,6 +137,67 @@ public class MediaControllerWithMediaSessionCompatTest {
   public void connected() throws Exception {
     MediaController controller = controllerTestRule.createController(session.getSessionToken());
     assertThat(controller.isConnected()).isTrue();
+  }
+
+  @Test
+  public void setPlaybackSpeed() throws Exception {
+    PlaybackStateCompat playbackStateCompat =
+        new PlaybackStateCompat.Builder()
+            .setState(
+                PlaybackStateCompat.STATE_PAUSED,
+                /* position= */ 10_000L,
+                /* playbackSpeed= */ 1.0f)
+            .setActions(PlaybackStateCompat.ACTION_SET_PLAYBACK_SPEED)
+            .build();
+    session.setPlaybackState(playbackStateCompat);
+    MediaController controller = controllerTestRule.createController(session.getSessionToken());
+    CountDownLatch countDownLatch = new CountDownLatch(1);
+    AtomicReference<PlaybackParameters> parametersRef = new AtomicReference<>();
+    controller.addListener(
+        new Player.Listener() {
+          @Override
+          public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
+            parametersRef.set(playbackParameters);
+            countDownLatch.countDown();
+          }
+        });
+
+    threadTestRule
+        .getHandler()
+        .postAndSync(
+            () -> {
+              assertThat(
+                      controller
+                          .getAvailableCommands()
+                          .contains(Player.COMMAND_SET_SPEED_AND_PITCH))
+                  .isTrue();
+              controller.setPlaybackSpeed(2.0f);
+            });
+
+    assertThat(countDownLatch.await(1000, MILLISECONDS)).isTrue();
+    assertThat(parametersRef.get().speed).isEqualTo(2.0f);
+  }
+
+  @Test
+  public void setPlaybackSpeed_actionSetPlaybackSpeedNotAvailable_commandNotAvailable()
+      throws Exception {
+    PlaybackStateCompat playbackStateCompat =
+        new PlaybackStateCompat.Builder()
+            .setState(PlaybackStateCompat.STATE_PAUSED, 10_000L, /* playbackSpeed= */ 1.0f)
+            .setActions(PlaybackStateCompat.ACTION_PAUSE)
+            .build();
+    session.setPlaybackState(playbackStateCompat);
+    MediaController controller = controllerTestRule.createController(session.getSessionToken());
+
+    threadTestRule
+        .getHandler()
+        .postAndSync(
+            () ->
+                assertThat(
+                        controller
+                            .getAvailableCommands()
+                            .contains(Player.COMMAND_SET_SPEED_AND_PITCH))
+                    .isFalse());
   }
 
   @Test
@@ -245,6 +307,8 @@ public class MediaControllerWithMediaSessionCompatTest {
     AtomicLong repeatModeRef = new AtomicLong();
     AtomicReference<MediaMetadata> playlistMetadataRef = new AtomicReference<>();
     AtomicBoolean isPlayingAdRef = new AtomicBoolean();
+    AtomicLong durationRef = new AtomicLong();
+    AtomicLong durationInTimelineRef = new AtomicLong();
     threadTestRule
         .getHandler()
         .postAndSync(
@@ -259,6 +323,12 @@ public class MediaControllerWithMediaSessionCompatTest {
               shuffleModeEnabledRef.set(controller.getShuffleModeEnabled());
               playlistMetadataRef.set(controller.getPlaylistMetadata());
               isPlayingAdRef.set(controller.isPlayingAd());
+              durationRef.set(controller.getDuration());
+              durationInTimelineRef.set(
+                  controller
+                      .getCurrentTimeline()
+                      .getWindow(/* windowIndex= */ 0, new Timeline.Window())
+                      .getDurationMs());
             });
 
     assertThat(positionRef.get())
@@ -272,6 +342,8 @@ public class MediaControllerWithMediaSessionCompatTest {
     assertThat(repeatModeRef.get()).isEqualTo(Player.REPEAT_MODE_ALL);
     assertThat(playlistMetadataRef.get().title.toString()).isEqualTo(queueTitle.toString());
     assertThat(isPlayingAdRef.get()).isEqualTo(isPlayingAd);
+    assertThat(durationRef.get()).isEqualTo(duration);
+    assertThat(durationInTimelineRef.get()).isEqualTo(duration);
   }
 
   @Test
@@ -1338,7 +1410,7 @@ public class MediaControllerWithMediaSessionCompatTest {
     CountDownLatch latch = new CountDownLatch(1);
     AtomicBoolean playWhenReadyFromParamRef = new AtomicBoolean();
     AtomicBoolean playWhenReadyFromGetterRef = new AtomicBoolean();
-    AtomicInteger playWhenReadyChangedReasonFromParamRef = new AtomicInteger();
+    AtomicInteger playWhenReadyChangeReasonFromParamRef = new AtomicInteger();
     Player.Listener listener =
         new Player.Listener() {
           @Override
@@ -1346,7 +1418,7 @@ public class MediaControllerWithMediaSessionCompatTest {
               boolean playWhenReady, @Player.PlayWhenReadyChangeReason int reason) {
             playWhenReadyFromParamRef.set(playWhenReady);
             playWhenReadyFromGetterRef.set(controller.getPlayWhenReady());
-            playWhenReadyChangedReasonFromParamRef.set(reason);
+            playWhenReadyChangeReasonFromParamRef.set(reason);
             latch.countDown();
           }
         };
@@ -1360,7 +1432,7 @@ public class MediaControllerWithMediaSessionCompatTest {
     assertThat(latch.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     assertThat(playWhenReadyFromParamRef.get()).isEqualTo(testPlayWhenReady);
     assertThat(playWhenReadyFromGetterRef.get()).isEqualTo(testPlayWhenReady);
-    assertThat(playWhenReadyChangedReasonFromParamRef.get())
+    assertThat(playWhenReadyChangeReasonFromParamRef.get())
         .isEqualTo(Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE);
   }
 
@@ -1537,6 +1609,7 @@ public class MediaControllerWithMediaSessionCompatTest {
     int volumeControlType = VolumeProviderCompat.VOLUME_CONTROL_ABSOLUTE;
     int maxVolume = 100;
     int currentVolume = 45;
+    String routingSessionId = Util.SDK_INT >= 30 ? "route" : null;
 
     AtomicReference<DeviceInfo> deviceInfoRef = new AtomicReference<>();
     CountDownLatch latchForDeviceInfo = new CountDownLatch(1);
@@ -1561,11 +1634,12 @@ public class MediaControllerWithMediaSessionCompatTest {
     MediaController controller = controllerTestRule.createController(session.getSessionToken());
     threadTestRule.getHandler().postAndSync(() -> controller.addListener(listener));
 
-    session.setPlaybackToRemote(volumeControlType, maxVolume, currentVolume);
+    session.setPlaybackToRemote(volumeControlType, maxVolume, currentVolume, routingSessionId);
 
     assertThat(latchForDeviceInfo.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     assertThat(latchForDeviceVolume.await(TIMEOUT_MS, MILLISECONDS)).isTrue();
     assertThat(deviceInfoRef.get().maxVolume).isEqualTo(maxVolume);
+    assertThat(deviceInfoRef.get().routingControllerId).isEqualTo(routingSessionId);
   }
 
   @Test
@@ -1577,7 +1651,8 @@ public class MediaControllerWithMediaSessionCompatTest {
     session.setPlaybackToRemote(
         VolumeProviderCompat.VOLUME_CONTROL_ABSOLUTE,
         /* maxVolume= */ 100,
-        /* currentVolume= */ 45);
+        /* currentVolume= */ 45,
+        /* routingSessionId= */ "route");
 
     int testLocalStreamType = AudioManager.STREAM_ALARM;
     AudioManager audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);

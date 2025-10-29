@@ -17,8 +17,8 @@
 package androidx.media3.transformer.mh;
 
 import static androidx.media3.common.util.Util.usToMs;
-import static androidx.media3.transformer.AndroidTestUtil.JPG_SINGLE_PIXEL_ASSET;
-import static androidx.media3.transformer.AndroidTestUtil.MP4_ASSET;
+import static androidx.media3.test.utils.AssetInfo.JPG_SINGLE_PIXEL_ASSET;
+import static androidx.media3.test.utils.AssetInfo.MP4_ASSET;
 import static com.google.common.truth.Truth.assertThat;
 
 import android.app.Instrumentation;
@@ -398,9 +398,8 @@ public class VideoTimestampConsistencyTest {
             .run(
                 /* testId= */ testName.getMethodName(),
                 new Composition.Builder(
-                        new EditedMediaItemSequence.Builder(timestampRecordingEditedMediaItems)
-                            .experimentalSetForceAudioTrack(true)
-                            .build())
+                        EditedMediaItemSequence.withAudioAndVideoFrom(
+                            timestampRecordingEditedMediaItems))
                     .build());
 
     return timestampRecordingShaderProgram.getInputTimestampsUs();
@@ -419,16 +418,18 @@ public class VideoTimestampConsistencyTest {
 
     instrumentation.runOnMainSync(
         () -> {
-          compositionPlayer = new CompositionPlayer.Builder(applicationContext).build();
+          compositionPlayer =
+              new CompositionPlayer.Builder(applicationContext)
+                  .experimentalSetLateThresholdToDropInputUs(C.TIME_UNSET)
+                  .build();
           // Set a surface on the player even though there is no UI on this test. We need a surface
           // otherwise the player will skip/drop video frames.
           compositionPlayer.setVideoSurfaceView(surfaceView);
           compositionPlayer.addListener(compositionPlayerListener);
           compositionPlayer.setComposition(
               new Composition.Builder(
-                      new EditedMediaItemSequence.Builder(timestampRecordingEditedMediaItems)
-                          .experimentalSetForceAudioTrack(true)
-                          .build())
+                      EditedMediaItemSequence.withAudioAndVideoFrom(
+                          timestampRecordingEditedMediaItems))
                   .build());
           compositionPlayer.prepare();
           compositionPlayer.play();

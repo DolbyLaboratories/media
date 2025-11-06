@@ -19,6 +19,7 @@ package androidx.media3.exoplayer.mediacodec;
 import static android.os.Build.VERSION.SDK_INT;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.media.AudioPresentation;
 import android.media.MediaCodec;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
@@ -345,6 +346,12 @@ import java.nio.ByteBuffer;
   @Override
   public void setVideoScalingMode(@C.VideoScalingMode int scalingMode) {
     codec.setVideoScalingMode(scalingMode);
+  }
+
+  @Override
+  @RequiresApi(29)
+  public void setAudioPresentation(AudioPresentation presentation) {
+    codec.setAudioPresentation(presentation);
   }
 
   @Override

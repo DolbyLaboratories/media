@@ -27,6 +27,7 @@ import android.annotation.SuppressLint;
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
+import android.media.AudioPresentation;
 import android.media.MediaCodec;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
@@ -933,6 +934,14 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
       case MSG_SET_SKIP_SILENCE_ENABLED:
         audioSink.setSkipSilenceEnabled((Boolean) checkNotNull(message));
         break;
+      case MSG_SET_AUDIO_PRESENTATION:
+        if (SDK_INT >= 29) {
+          @Nullable MediaCodecAdapter codec = getCodec();
+          if (codec != null) {
+            codec.setAudioPresentation((AudioPresentation) checkNotNull(message));
+          }
+        }
+        break;
       case MSG_SET_AUDIO_SESSION_ID:
         setAudioSessionId((int) checkNotNull(message));
         break;
@@ -1059,6 +1068,15 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
     if (SDK_INT >= 35) {
       mediaFormat.setInteger(MediaFormat.KEY_IMPORTANCE, max(0, -rendererPriority));
     }
+    //if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+    //     android.os.Build.VERSION.SDK_INT_FULL >= 3600001) {
+    //   mediaFormat.setInteger(MediaFormat.KEY_AUDIO_PRESENTATION_ID,
+    //       format.audioPresentations.get(0).getPresentationId());
+    if (!format.audioPresentations.isEmpty()) {
+      mediaFormat.setInteger("audio-presentation-id",
+          format.audioPresentations.get(0).getPresentationId());
+    }
+    //}
     return mediaFormat;
   }
 

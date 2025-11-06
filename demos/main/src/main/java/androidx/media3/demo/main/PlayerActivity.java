@@ -18,6 +18,9 @@ package androidx.media3.demo.main;
 import android.content.ContentResolver;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.icu.util.ULocale;
+import android.media.AudioPresentation;
+import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -35,6 +38,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.ErrorMessageProvider;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
@@ -469,10 +473,25 @@ public class PlayerActivity extends AppCompatActivity
 
   private class PlayerEventListener implements Player.Listener {
 
+    @OptIn(markerClass = UnstableApi.class)
     @Override
     public void onPlaybackStateChanged(@Player.State int playbackState) {
       if (playbackState == Player.STATE_ENDED) {
         showControls();
+      }
+      // Test code
+      if (playbackState == Player.STATE_READY) {
+        Format format = player.getAudioFormat();
+        assert format != null;
+        if (MediaFormat.MIMETYPE_AUDIO_AC4.equals(format.sampleMimeType)) {
+          AudioPresentation presentation = null;
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            presentation = format.audioPresentations.get(2);
+          }
+          assert player != null;
+          assert presentation != null;
+          player.setAudioPresentation(presentation);
+        }
       }
       updateButtonVisibility();
     }

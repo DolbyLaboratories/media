@@ -18,6 +18,9 @@ package androidx.media3.extractor;
 import static java.lang.annotation.ElementType.TYPE_USE;
 import static java.lang.annotation.RetentionPolicy.SOURCE;
 
+import android.icu.util.ULocale;
+import android.media.AudioPresentation;
+import android.os.Build;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
@@ -34,6 +37,12 @@ import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.Target;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 
 /** Utility methods for parsing AC-4 frames, which are access units in AC-4 bitstreams. */
 @UnstableApi
@@ -113,6 +122,31 @@ public final class Ac4Util {
   private static final int CHANNEL_MODE_9_1_4 = 14;
   private static final int CHANNEL_MODE_22_2 = 15;
 
+  // TS 103 190-1 v1.2.1 4.3.3.8.1: content_classifiers
+  @Documented
+  @Retention(SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+      COMPLETE_MAIN,
+      MUSIC_AND_EFFECTS,
+      VISUALLY_IMPAIRED,
+      HEARING_IMPAIRED,
+      DIALOG,
+      COMMENTARY,
+      EMERGENCY,
+      VOICEOVER
+  })
+  private @interface ContentClassifier {}
+
+  private static final int COMPLETE_MAIN = 0;
+  private static final int MUSIC_AND_EFFECTS = 1;
+  private static final int VISUALLY_IMPAIRED = 2;
+  private static final int HEARING_IMPAIRED = 3;
+  private static final int DIALOG = 4;
+  private static final int COMMENTARY = 5;
+  private static final int EMERGENCY = 6;
+  private static final int VOICEOVER = 7;
+
   public static final int AC40_SYNCWORD = 0xAC40;
   public static final int AC41_SYNCWORD = 0xAC41;
 
@@ -182,6 +216,9 @@ public final class Ac4Util {
     ParsableBitArray dataBitArray = new ParsableBitArray();
     dataBitArray.reset(data);
 
+    Map<Integer, Ac4Presentation> ac4Presentations = new HashMap<>();
+    List<AudioPresentation> audioPresentations = new ArrayList<>();
+
     int dsiSize = dataBitArray.bitsLeft();
     int ac4DsiVersion = dataBitArray.readBits(3); // ac4_dsi_version
     if (ac4DsiVersion > 1) {
@@ -193,6 +230,7 @@ public final class Ac4Util {
     int sampleRate = dataBitArray.readBit() ? 48000 : 44100; // fs_index
     dataBitArray.skipBits(4); // frame_rate_index
     int numberOfPresentations = dataBitArray.readBits(9); // n_presentations
+    int shortProgramId = -1;
 
     if (bitstreamVersion > 1) {
       if (ac4DsiVersion == 0) {
@@ -200,7 +238,7 @@ public final class Ac4Util {
             "Invalid AC-4 DSI version: " + ac4DsiVersion);
       }
       if (dataBitArray.readBit()) { // b_program_id
-        dataBitArray.skipBits(16); // short_program_id
+        shortProgramId = dataBitArray.readBits(16); // short_program_id
         if (dataBitArray.readBit()) { // b_uuid
           dataBitArray.skipBits(16 * 8); // program_uuid
         }
@@ -214,8 +252,9 @@ public final class Ac4Util {
       dataBitArray.byteAlign();
     }
 
-    Ac4Presentation ac4Presentation = new Ac4Presentation();
     for (int presentationIdx = 0; presentationIdx < numberOfPresentations; presentationIdx++) {
+      Ac4Presentation ac4Presentation = new Ac4Presentation();
+      ac4Presentation.programID = shortProgramId;
       boolean isSingleSubstream = false;
       boolean isSingleSubstreamGroup = false;
       int presentationConfig;
@@ -253,7 +292,7 @@ public final class Ac4Util {
         ac4Presentation.level = dataBitArray.readBits(3); // mdcompat
 
         if (dataBitArray.readBit()) { // b_presentation_group_index
-          dataBitArray.skipBits(5); // group_index
+          ac4Presentation.groupIndex = dataBitArray.readBits(5); // group_index
         }
 
         dataBitArray.skipBits(2); // dsi_frame_rate_multiply_info
@@ -359,7 +398,7 @@ public final class Ac4Util {
               break;
           }
         }
-        dataBitArray.skipBit(); // b_pre_virtualized
+        ac4Presentation.preVirtualized = dataBitArray.readBit(); // b_pre_virtualized
         addEmdfSubstreams = dataBitArray.readBit(); // b_add_emdf_substreams
       }
       if (addEmdfSubstreams) {
@@ -379,7 +418,9 @@ public final class Ac4Util {
         if (dataBitArray.readBit()) { // b_alternative
           dataBitArray.byteAlign();
           int nameLen = dataBitArray.readBits(16); // name_len
-          dataBitArray.skipBytes(nameLen); // presentation_name
+          byte[] presentationName = new byte[nameLen];
+          dataBitArray.readBytes(presentationName, 0, nameLen); // presentation_name
+          ac4Presentation.description = new String(presentationName);
 
           int nTargets = dataBitArray.readBits(5); // n_targets
           for (int i = 0; i < nTargets; i++) {
@@ -407,84 +448,145 @@ public final class Ac4Util {
         throw ParserException.createForUnsupportedContainerFeature(
             "Can't determine channel mode of presentation " + presentationIdx);
       }
-      break; // Successfully parsed the first presentation with presentation version 0, 1 or 2.
+      ac4Presentations.put(presentationIdx, ac4Presentation);
     }
 
-    int channelCount;
-    if (ac4Presentation.isChannelCoded) {
-      channelCount =
-          getAdjustedChannelCount(
-              ac4Presentation.channelMode,
-              ac4Presentation.hasBackChannels,
-              ac4Presentation.topChannelPairs);
-    } else {
-      if (ac4Presentation.numOfUmxObjects > 0) {
-        // The ETSI TS 103 190-2 V1.2.1 (2018-02) specification defines the parameter
-        // n_umx_objects_minus1 in Annex E (E.11.11) to specify the number of fullband objects.
-        // While the elementary stream specification (section 6.3.2.8.1 and 6.3.2.10.4) provides
-        // information about the presence of an LFE channel within the set of dynamic objects, this
-        // detail is not explicitly stated in the ISO Base Media File Format (Annex E). However,
-        // current implementation practices consistently include the LFE channel when creating an
-        // object-based substream. As a result, it has been decided that when interpreting the ISO
-        // Base Media File Format, the LFE channel should always be counted as part of the total
-        // channel count.
-        int lfeChannelCount = 1;
-        channelCount = ac4Presentation.numOfUmxObjects + lfeChannelCount;
-        // TODO: There is a bug in ETSI TS 103 190-2 V1.2.1 (2018-02), E.11.11
-        // For AC-4 level 4 stream, the intention is to set 19 to n_umx_objects_minus1 but it is
-        // equal to 15 based on current specification. Dolby has filed a bug report to ETSI.
-        // The following sentence should be deleted after ETSI specification error is fixed.
-        if (ac4Presentation.level == 4) {
-          channelCount = channelCount == 17 ? 21 : channelCount;
-        }
+    for (int id = 0; id < ac4Presentations.size(); id++) {
+      Ac4Presentation ac4Presentation = Objects.requireNonNull(ac4Presentations.get(id));
+      if (ac4Presentation.isChannelCoded) {
+        ac4Presentation.channelCount =
+            getAdjustedChannelCount(
+                ac4Presentation.channelMode,
+                ac4Presentation.hasBackChannels,
+                ac4Presentation.topChannelPairs);
       } else {
-        // This presentation includes a substream with discrete objects. Due to limitations in the
-        // current AC-4 specification (ETSI TS 103 190-2 V1.2.1 (2018-02)), discrete object number
-        // information is not explicitly stated in the ISO Base Media File Format (Annex E). To
-        // prevent exceptions, "Maximum number of tracks if audio presentation includes object
-        // audio" in table 77 of ETSI TS 103 190-2 V1.2.1 (2018-02) is used as the channel count.
-        switch (ac4Presentation.level) {
-          case 0:
-            // This should not happen because level 0 is always channel coded.
-            channelCount = 2;
-            break;
-          case 1:
-            channelCount = 6;
-            break;
-          case 2:
-            channelCount = 8;
-            break;
-          case 3:
-            channelCount = 10;
-            break;
-          case 4:
-            channelCount = 12;
-            break;
-          default:
-            // For forward-compatibility, default to 2 channels for unknown future AC-4 levels
-            // rather than throwing an exception. This allows the device to attempt playback.
-            Log.w(TAG, "AC-4 level " + ac4Presentation.level + " has not been defined.");
-            channelCount = 2;
-            break;
+        if (ac4Presentation.numOfUmxObjects > 0) {
+          // The ETSI TS 103 190-2 V1.2.1 (2018-02) specification defines the parameter
+          // n_umx_objects_minus1 in Annex E (E.11.11) to specify the number of fullband objects.
+          // While the elementary stream specification (section 6.3.2.8.1 and 6.3.2.10.4) provides
+          // information about the presence of an LFE channel within the set of dynamic objects, this
+          // detail is not explicitly stated in the ISO Base Media File Format (Annex E). However,
+          // current implementation practices consistently include the LFE channel when creating an
+          // object-based substream. As a result, it has been decided that when interpreting the ISO
+          // Base Media File Format, the LFE channel should always be counted as part of the total
+          // channel count.
+          int lfeChannelCount = 1;
+          ac4Presentation.channelCount = ac4Presentation.numOfUmxObjects + lfeChannelCount;
+          // TODO: There is a bug in ETSI TS 103 190-2 V1.2.1 (2018-02), E.11.11
+          // For AC-4 level 4 stream, the intention is to set 19 to n_umx_objects_minus1 but it is
+          // equal to 15 based on current specification. Dolby has filed a bug report to ETSI.
+          // The following sentence should be deleted after ETSI specification error is fixed.
+          if (ac4Presentation.level == 4) {
+            ac4Presentation.channelCount =
+                ac4Presentation.channelCount == 17 ? 21 : ac4Presentation.channelCount;
+          }
+        } else {
+          // This presentation includes a substream with discrete objects. Due to limitations in the
+          // current AC-4 specification (ETSI TS 103 190-2 V1.2.1 (2018-02)), discrete object number
+          // information is not explicitly stated in the ISO Base Media File Format (Annex E). To
+          // prevent exceptions, "Maximum number of tracks if audio presentation includes object
+          // audio" in table 77 of ETSI TS 103 190-2 V1.2.1 (2018-02) is used as the channel count.
+          switch (ac4Presentation.level) {
+            case 0:
+              // This should not happen because level 0 is always channel coded.
+              ac4Presentation.channelCount = 2;
+              break;
+            case 1:
+              ac4Presentation.channelCount = 6;
+              break;
+            case 2:
+              ac4Presentation.channelCount = 8;
+              break;
+            case 3:
+              ac4Presentation.channelCount = 10;
+              break;
+            case 4:
+              ac4Presentation.channelCount = 12;
+              break;
+            default:
+              // For forward-compatibility, default to 2 channels for unknown future AC-4 levels
+              // rather than throwing an exception. This allows the device to attempt playback.
+              Log.w(TAG, "AC-4 level " + ac4Presentation.level + " has not been defined.");
+              ac4Presentation.channelCount = 2;
+              break;
+          }
         }
+      }
+
+      if (ac4Presentation.channelCount <= 0) {
+        throw ParserException.createForUnsupportedContainerFeature(
+            "Cannot determine channel count of presentation.");
+      }
+
+      int masteringIndicationType = AudioPresentation.MASTERING_NOT_INDICATED;
+      if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+          && ac4Presentation.isChannelCoded) {
+        if (ac4Presentation.preVirtualized) {
+          masteringIndicationType = AudioPresentation.MASTERED_FOR_HEADPHONE;
+        } else {
+          switch (ac4Presentation.channelMode) {
+            case CHANNEL_MODE_MONO:
+            case CHANNEL_MODE_STEREO:
+              masteringIndicationType = AudioPresentation.MASTERED_FOR_STEREO;
+              break;
+            case CHANNEL_MODE_3_0:
+            case CHANNEL_MODE_5_0:
+            case CHANNEL_MODE_5_1:
+            case CHANNEL_MODE_7_0_34:
+            case CHANNEL_MODE_7_1_34:
+            case CHANNEL_MODE_7_0_52:
+            case CHANNEL_MODE_7_1_52:
+              masteringIndicationType = AudioPresentation.MASTERED_FOR_SURROUND;
+              break;
+            case CHANNEL_MODE_7_0_322:
+            case CHANNEL_MODE_7_1_322:
+            case CHANNEL_MODE_7_0_4:
+            case CHANNEL_MODE_7_1_4:
+            case CHANNEL_MODE_9_0_4:
+            case CHANNEL_MODE_9_1_4:
+            case CHANNEL_MODE_22_2:
+              masteringIndicationType = AudioPresentation.MASTERED_FOR_3D;
+              break;
+            default:
+              throw ParserException.createForUnsupportedContainerFeature(
+                  "Invalid channel mode in AC4 presentation.");
+          }
+        }
+      }
+      if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        ULocale locale = new ULocale("");
+        if (ac4Presentation.language != null) {
+          locale = ULocale.forLocale(new Locale(ac4Presentation.language));
+        }
+        HashMap<ULocale, CharSequence> label = new HashMap<>();
+        if (ac4Presentation.description != null) {
+          label.put(locale, ac4Presentation.description);
+        }
+        AudioPresentation presentation = (new AudioPresentation.Builder(ac4Presentation.groupIndex)
+            .setProgramId(ac4Presentation.programID)
+            .setLocale(locale)
+            .setMasteringIndication(masteringIndicationType)
+            .setHasAudioDescription(ac4Presentation.contentClassifier ==
+                VISUALLY_IMPAIRED)
+            .setHasSpokenSubtitles(ac4Presentation.contentClassifier == VOICEOVER)
+            .setHasDialogueEnhancement(ac4Presentation.hasDialogEnhancements)
+            .setLabels(label)).build();
+        audioPresentations.add(presentation);
       }
     }
 
-    if (channelCount <= 0) {
-      throw ParserException.createForUnsupportedContainerFeature(
-          "Cannot determine channel count of presentation.");
-    }
-
-    String codecString =
-        createCodecsString(bitstreamVersion, ac4Presentation.version, ac4Presentation.level);
+    Ac4Presentation defaultPresentation = Objects.requireNonNull(ac4Presentations.get(0));
+    String codecString = createCodecsString(bitstreamVersion,
+        defaultPresentation.version, defaultPresentation.level);
 
     return new Format.Builder()
         .setId(trackId)
         .setSampleMimeType(MimeTypes.AUDIO_AC4)
-        .setChannelCount(channelCount)
+        .setChannelCount(defaultPresentation.channelCount)
         .setSampleRate(sampleRate)
+        .setAudioPresentations(audioPresentations)
         .setDrmInitData(drmInitData)
-        .setLanguage(language)
+        .setLanguage(defaultPresentation.language)
         .setCodecs(codecString)
         .build();
   }
@@ -513,18 +615,18 @@ public final class Ac4Util {
     }
 
     if (data.readBit()) { // b_content_type
-      int contentClassifier = data.readBits(3); // content_classifier
+      ac4Presentation.contentClassifier = data.readBits(3); // content_classifier
       // For streams based on TS 103 190 part 1 the presentation level channel_mode doesn't exist
       // and so we use the channel_mode from either the CM or M&E substream (they are mutually
       // exclusive).
       if (ac4Presentation.channelMode == CHANNEL_MODE_UNKNOWN
           && (channelMode >= 0 && channelMode <= 15)
-          && (contentClassifier == 0 || contentClassifier == 1)) {
+          && (ac4Presentation.contentClassifier == 0 || ac4Presentation.contentClassifier == 1)) {
         ac4Presentation.channelMode = channelMode;
       }
 
       if (data.readBit()) { // b_language_indicator
-        skipDsiLanguage(data);
+        parseDsiLanguage(data, ac4Presentation);
       }
     }
   }
@@ -568,21 +670,23 @@ public final class Ac4Util {
       data.skipBits(3); // content_classifier
 
       if (data.readBit()) { // b_language_indicator
-        skipDsiLanguage(data);
+        parseDsiLanguage(data, ac4Presentation);
       }
     }
   }
 
   /**
-   * Skips the language information fields in an AC-4 DSI bit stream according to TS 103 190-1
+   * Parses the language information fields in an AC-4 DSI bit stream according to TS 103 190-1
    * section 4.3.3.8.7. Modifies the reading position of {@code data} to be just after the language
    * fields.
    *
    * @param data The {@link ParsableBitArray} containing the AC-4 DSI, positioned at the start of
    *     the language tag field.
+   * @param ac4Presentation A structure to store parsed AC-4 presentation information.
    * @throws ParserException If the language tag length is invalid.
    */
-  private static void skipDsiLanguage(ParsableBitArray data) throws ParserException {
+  private static void parseDsiLanguage(ParsableBitArray data, Ac4Presentation ac4Presentation)
+      throws ParserException {
     int languageTagBytesNumber = data.readBits(6); // n_language_tag_bytes
     if (languageTagBytesNumber < 2 || languageTagBytesNumber > 42) {
       throw ParserException.createForUnsupportedContainerFeature(
@@ -590,8 +694,10 @@ public final class Ac4Util {
               "Invalid language tag bytes number: %d. Must be between 2 and 42.",
               languageTagBytesNumber));
     }
-    // Can't use readBytes() since it is not byte-aligned here.
-    data.skipBits(languageTagBytesNumber * C.BITS_PER_BYTE);
+    byte[] languageTagBytes = new byte[languageTagBytesNumber];
+    // Cannot use readBytes() since it is not byte-aligned here.
+    data.readBits(languageTagBytes, 0, languageTagBytesNumber * C.BITS_PER_BYTE);
+    ac4Presentation.language = new String(languageTagBytes);
   }
 
   /**
@@ -820,20 +926,38 @@ public final class Ac4Util {
   private static final class Ac4Presentation {
     public boolean isChannelCoded;
     public @ChannelMode int channelMode;
+    public @ContentClassifier int contentClassifier;
     public int numOfUmxObjects;
     public boolean hasBackChannels;
     public int topChannelPairs;
+    public int channelCount;
+    public int programID;
+    public int groupIndex;
+    public boolean hasDialogEnhancements;
+    public boolean preVirtualized;
     public int version;
     public int level;
+    @Nullable
+    public String language;
+    @Nullable
+    public String description;
 
     private Ac4Presentation() {
       isChannelCoded = true;
       channelMode = CHANNEL_MODE_UNKNOWN;
+      contentClassifier = COMPLETE_MAIN;
       numOfUmxObjects = -1;
       hasBackChannels = true;
       topChannelPairs = 2;
-      version = 1;
+      channelCount = -1;
+      programID = -1;
+      groupIndex = -1;
+      hasDialogEnhancements = false;
+      preVirtualized = false;
+      version = 0;
       level = 0;
+      language = null;
+      description = null;
     }
   }
 

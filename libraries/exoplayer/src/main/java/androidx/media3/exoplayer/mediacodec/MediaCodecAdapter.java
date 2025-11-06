@@ -16,6 +16,7 @@
 package androidx.media3.exoplayer.mediacodec;
 
 import android.content.Context;
+import android.media.AudioPresentation;
 import android.media.MediaCodec;
 import android.media.MediaCrypto;
 import android.media.MediaFormat;
@@ -324,6 +325,15 @@ public interface MediaCodecAdapter {
    * @see MediaCodec#setVideoScalingMode(int)
    */
   void setVideoScalingMode(@C.VideoScalingMode int scalingMode);
+
+
+  /**
+   * Sets the presentation of an audio program, delivered by Next Generation Audio streams.
+   * Also requires platform API version 29 onwards.
+   *
+   * @param presentation The audio presentation to set.
+   */
+  void setAudioPresentation(AudioPresentation presentation);
 
   /** Whether the adapter needs to be reconfigured before it is used. */
   boolean needsReconfiguration();

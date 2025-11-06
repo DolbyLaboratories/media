@@ -20,6 +20,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import android.media.AudioPresentation;
 import android.net.Uri;
 import android.os.Handler;
 import androidx.annotation.Nullable;
@@ -46,6 +47,7 @@ import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.drm.DrmSessionEventListener;
 import androidx.media3.exoplayer.drm.DrmSessionManager;
 import androidx.media3.exoplayer.source.SampleQueue.UpstreamFormatChangedListener;
+import androidx.media3.exoplayer.source.SampleQueue.UpstreamAudioPresentationsChangedListener;
 import androidx.media3.exoplayer.source.SampleStream.ReadFlags;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.media3.exoplayer.upstream.Allocator;
@@ -84,7 +86,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         ExtractorOutput,
         Loader.Callback<ProgressiveMediaPeriod.ExtractingLoadable>,
         Loader.ReleaseCallback,
-        UpstreamFormatChangedListener {
+        UpstreamFormatChangedListener,
+        UpstreamAudioPresentationsChangedListener {
 
   /** Listener for information about the period. */
   interface Listener {
@@ -795,6 +798,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     handler.post(maybeFinishPrepareRunnable);
   }
 
+  @Override
+  public void onUpstreamAudioPresentationsChanged(List<AudioPresentation> audioPresentations) {
+    handler.post(() -> updateAudioPresentations(audioPresentations));
+  }
+
   // Internal methods.
 
   private void onLengthKnown() {
@@ -815,6 +823,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     SampleQueue trackOutput =
         SampleQueue.createWithDrm(allocator, drmSessionManager, drmEventDispatcher);
     trackOutput.setUpstreamFormatChangeListener(this);
+    trackOutput.setUpstreamAudioPresentationsChangeListener(this);
     @NullableType
     TrackId[] sampleQueueTrackIds = Arrays.copyOf(this.sampleQueueTrackIds, trackCount + 1);
     sampleQueueTrackIds[trackCount] = id;
@@ -823,6 +832,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     sampleQueues[trackCount] = trackOutput;
     this.sampleQueues = Util.castNonNullTypeArray(sampleQueues);
     return trackOutput;
+  }
+
+  private void updateAudioPresentations(List<AudioPresentation> audioPresentations) {
+    checkNotNull(callback).onAudioPresentationsChanged(audioPresentations);
   }
 
   private void setSeekMap(SeekMap seekMap) {

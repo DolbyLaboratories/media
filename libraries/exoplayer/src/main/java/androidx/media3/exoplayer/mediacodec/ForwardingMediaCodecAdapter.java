@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer.mediacodec;
 
+import android.media.AudioPresentation;
 import android.media.MediaCodec.BufferInfo;
 import android.media.MediaFormat;
 import android.os.Bundle;
@@ -135,6 +136,12 @@ public class ForwardingMediaCodecAdapter implements MediaCodecAdapter {
   @Override
   public void setVideoScalingMode(int scalingMode) {
     delegate.setVideoScalingMode(scalingMode);
+  }
+
+  @RequiresApi(29)
+  @Override
+  public void setAudioPresentation(AudioPresentation presentation) {
+    delegate.setAudioPresentation(presentation);
   }
 
   @Override

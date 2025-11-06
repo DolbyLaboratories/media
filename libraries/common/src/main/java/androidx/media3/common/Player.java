@@ -23,6 +23,7 @@ import static java.lang.annotation.ElementType.METHOD;
 import static java.lang.annotation.ElementType.PARAMETER;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.media.AudioPresentation;
 import android.os.Bundle;
 import android.os.Looper;
 import android.view.Surface;
@@ -32,6 +33,7 @@ import android.view.TextureView;
 import androidx.annotation.FloatRange;
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.text.Cue;
@@ -568,6 +570,7 @@ public interface Player {
         COMMAND_ADJUST_DEVICE_VOLUME,
         COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
         COMMAND_SET_AUDIO_ATTRIBUTES,
+        COMMAND_SET_AUDIO_PRESENTATION,
         COMMAND_SET_VIDEO_SURFACE,
         COMMAND_GET_TEXT,
         COMMAND_SET_TRACK_SELECTION_PARAMETERS,
@@ -872,6 +875,14 @@ public interface Player {
      * @param tracks The available tracks information. Never null, but may be of length zero.
      */
     default void onTracksChanged(Tracks tracks) {}
+
+    /**
+     * Called when the audio presentations, available to the player for the current track, are
+     * changed.
+     *
+     * @param audioPresentations The available audio presentations. Never null, but may be empty.
+     */
+    default void onAudioPresentationsChanged(@NonNull List<AudioPresentation> audioPresentations) {}
 
     /**
      * Called when the value of {@link Player#getMediaMetadata()} changes.
@@ -1553,7 +1564,8 @@ public interface Player {
     EVENT_CUES,
     EVENT_METADATA,
     EVENT_DEVICE_INFO_CHANGED,
-    EVENT_DEVICE_VOLUME_CHANGED
+    EVENT_DEVICE_VOLUME_CHANGED,
+    EVENT_AUDIO_PRESENTATIONS_CHANGED
   })
   @interface Event {}
 
@@ -1656,6 +1668,9 @@ public interface Player {
   /** {@link #getDeviceVolume()} or {@link #isDeviceMuted()} changed. */
   int EVENT_DEVICE_VOLUME_CHANGED = 30;
 
+  /** Audio presentations associated with the current audio track changed. */
+  int EVENT_AUDIO_PRESENTATIONS_CHANGED = 31;
+
   /**
    * Commands that indicate which method calls are currently permitted on a particular {@code
    * Player} instance.
@@ -1699,6 +1714,7 @@ public interface Player {
    *   <li>{@link #COMMAND_ADJUST_DEVICE_VOLUME}
    *   <li>{@link #COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS}
    *   <li>{@link #COMMAND_SET_AUDIO_ATTRIBUTES}
+   *   <li>{@link #COMMAND_SET_AUDIO_PRESENTATION}
    *   <li>{@link #COMMAND_SET_VIDEO_SURFACE}
    *   <li>{@link #COMMAND_GET_TEXT}
    *   <li>{@link #COMMAND_SET_TRACK_SELECTION_PARAMETERS}
@@ -1746,6 +1762,7 @@ public interface Player {
     COMMAND_ADJUST_DEVICE_VOLUME,
     COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
     COMMAND_SET_AUDIO_ATTRIBUTES,
+    COMMAND_SET_AUDIO_PRESENTATION,
     COMMAND_SET_VIDEO_SURFACE,
     COMMAND_GET_TEXT,
     COMMAND_SET_TRACK_SELECTION_PARAMETERS,
@@ -2105,6 +2122,14 @@ public interface Player {
    * command is {@linkplain #isCommandAvailable(int) available}.
    */
   int COMMAND_SET_AUDIO_ATTRIBUTES = 35;
+
+  /**
+   * Command to set the player's audio presentation.
+   *
+   * <p>The {@link #setAudioPresentation(AudioPresentation presentation)} method must only
+   * be called if this command is {@linkplain #isCommandAvailable(int) available}.
+   */
+  int COMMAND_SET_AUDIO_PRESENTATION = 36;
 
   /**
    * Command to set and clear the surface on which to render the video.
@@ -3553,4 +3578,18 @@ public interface Player {
    * @param handleAudioFocus True if the player should handle audio focus, false otherwise.
    */
   void setAudioAttributes(AudioAttributes audioAttributes, boolean handleAudioFocus);
+
+  /**
+   * Sets the {@link AudioPresentation} to be selected in the audio renderer on an active audio
+   * track. This audio presentation will be decoded by the supported audio decoders.
+   *
+   * <p>This method is supported only for direct/offload playback modes and on devices running a
+   * build platform API version 29 onwards.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_AUDIO_PRESENTATION} is {@linkplain
+   * #getAvailableCommands() available}.
+   *
+   * @param presentation The audio presentation to select.
+   */
+  default void setAudioPresentation(AudioPresentation presentation) {}
 }

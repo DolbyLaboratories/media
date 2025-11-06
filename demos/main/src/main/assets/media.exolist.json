@@ -1,5 +1,178 @@
 [
   {
+    "name": "DOLBY_Streaming",
+    "samples": [
+      {
+        "name": "DASH: DV 10.0",
+        "uri": "https://ott.dolby.com/OnDelKits/Dolby_Vision_Online_Delivery_Kit_1.0/Test_Signals/clear/P10_25/dash.mpd"
+      },
+      {
+        "name": "DASH: DV 10.1",
+        "uri": "https://ott.dolby.com/OnDelKits/Dolby_Vision_Online_Delivery_Kit_1.0/Test_Signals/clear/P10_1_25/dash.mpd"
+      },
+      {
+        "name": "DASH: DV 10.4",
+        "uri": "https://ott.dolby.com/OnDelKits/Dolby_Vision_Online_Delivery_Kit_1.0/Test_Signals/clear/P10_4_25/dash.mpd"
+      },
+      {
+        "name": "HLS: DV 10.0",
+        "uri": "https://ott.dolby.com/OnDelKits/Dolby_Vision_Online_Delivery_Kit_1.0/Test_Signals/clear/P10_25/master.m3u8"
+      },
+      {
+        "name": "HLS: DV 10.1",
+        "uri": "https://ott.dolby.com/OnDelKits/Dolby_Vision_Online_Delivery_Kit_1.0/Test_Signals/clear/P10_1_25/master.m3u8"
+      },
+      {
+        "name": "HLS: DV 10.4",
+        "uri": "https://ott.dolby.com/OnDelKits/Dolby_Vision_Online_Delivery_Kit_1.0/Test_Signals/clear/P10_4_25/master.m3u8"
+      },
+      {
+        "name": "OnDel: AC-4 Multiple audio channel configurations",
+        "uri": "https://ott.dolby.com/OnDelKits/AC-4/Dolby_AC-4_Online_Delivery_Kit_1.5/Test_Signals/muxed_streams/DASH/OnDemand/MPD/Multi_Channel_Config_720p_25fps_h264.mpd",
+        "extension": "mpd"
+      },
+      {
+        "name": "OnDel: Multiple audio codecs",
+        "uri": "https://ott.dolby.com/OnDelKits/AC-4/Dolby_AC-4_Online_Delivery_Kit_1.5/Test_Signals/muxed_streams/DASH/OnDemand/MPD/Multi_Codec_720p_25fps_h264.mpd",
+        "extension": "mpd"
+      },
+      {
+        "name": "Malte's Stream -- Multiple Presentations",
+        "uri": "https://hobbitwo-content.s3.eu-central-1.amazonaws.com/PATS_DRM/20_ME_D_5pres_NO_DRM/stream.mpd",
+        "extension": "mpd"
+      },
+      {
+        "name": "Dolby Vision DASH",
+        "uri": "https://d9zmmjtv72w5o.cloudfront.net/User/Sink_SDK/v53/AST-DVHE.08-01-MPD-HLS-23976/P81_HEV1_23976.mpd"
+      },
+      {
+        "name": "Dolby Vision HLS",
+        "uri": "https://d9zmmjtv72w5o.cloudfront.net/User/Sink_SDK/v53/AST-DVH1.08-01-MPD-HLS-23976/P81_HVC1_23976.m3u8"
+      }
+    ]
+  },
+  {
+    "name": "DOLBY_Local",
+    "samples": [
+      {
+        "name": "DV P5",
+        "uri": "file:///sdcard/Download/dvhe05.mp4"
+      },
+      {
+        "name": "DV P8.4",
+        "uri": "file:///sdcard/Download/ChromaPulseCTS__HEVC_BT2100_HLG__1280x720_25fps__DV_P8.4.mp4"
+      },
+      {
+        "name": "DV P10.0",
+        "uri": "file:///sdcard/Download/ChromaPulseCTS__DV__1280x720_25fps__P10.0__IPT_PQ_C2__AV1.mp4"
+      },
+      {
+        "name": "DV P10.4",
+        "uri": "file:///sdcard/Download/ChromaPulseCTS__DV__1280x720_25fps__P10.4__BT2100_HLG__AV1.mp4"
+      },
+      {
+        "name": "AC-4 L4",
+        "uri": "file:///sdcard/Download/Amaze_ac4joc_av.mp4"
+      },
+      {
+        "name": "bbi_low_rate_async_oamd_update.mp4",
+        "uri": "file:///sdcard/Download/L3/bbi_low_rate_async_oamd_update.mp4"
+      },
+      {
+        "name": "bcast_021a_P64_leaf_fr8_480000_bbi_ajoc_PC3.mp4",
+        "uri": "file:///sdcard/Download/L3/bcast_021a_P64_leaf_fr8_480000_bbi_ajoc_PC3.mp4"
+      },
+      {
+        "name": "bcast_021b_P64_leaf_fr11_480000_bbi_ajoc_PC3.mp4",
+        "uri": "file:///sdcard/Download/L3/bcast_021b_P64_leaf_fr11_480000_bbi_ajoc_PC3.mp4"
+      },
+      {
+        "name": "bcast_023b_P64_leaf_fr11_480000_bbi_ajoc_PC3.mp4",
+        "uri": "file:///sdcard/Download/L3/bcast_023b_P64_leaf_fr11_480000_bbi_ajoc_PC3.mp4"
+      },
+      {
+        "name": "ehfr_714_cbi_framedrop_48000_ssg_b768_r7.mp4",
+        "uri": "file:///sdcard/Download/L3/ehfr_714_cbi_framedrop_48000_ssg_b768_r7.mp4"
+      },
+      {
+        "name": "soma_PC3_bsv2_fridx_13.mp4",
+        "uri": "file:///sdcard/Download/L3/soma_PC3_bsv2_fridx_13.mp4"
+      },
+      {
+        "name": "sys_64_presentations_48000_r8.mp4",
+        "uri": "file:///sdcard/Download/L3/sys_64_presentations_48000_r8.mp4"
+      },
+      {
+        "name": "sys_max_toc_pres100_f25_r13.mp4",
+        "uri": "file:///sdcard/Download/L3/sys_max_toc_pres100_f25_r13.mp4"
+      },
+      {
+        "name": "AC-4 L4 Elton",
+        "uri": "file:///sdcard/Download/Elton.mp4"
+      },
+      {
+        "name": "AC-4 L3 ajoc_de_ajoc_lfe1_7objs_dmx5_dlg1_dmg12_pb15_dcr1_sp0_cqu0_48000_ssg_b640_r3",
+        "uri": "file:///sdcard/Download/ajoc_de_ajoc_lfe1_7objs_dmx5_dlg1_dmg12_pb15_dcr1_sp0_cqu0_48000_ssg_b640_r3.mp4"
+      },
+      {
+        "name": "AC-4 L3 ajoc_ssg_dmx9_1_umx_17_1_fri13_48k",
+        "uri": "file:///sdcard/Download/ajoc_ssg_dmx9_1_umx_17_1_fri13_48k.mp4"
+      },
+      {
+        "name": "AC-4 L3 bbi_level3_PC3_me_512dmx_514umx_dlg_1dyn_assoc_1dyn",
+        "uri": "file:///sdcard/Download/bbi_level3_PC3_me_512dmx_514umx_dlg_1dyn_assoc_1dyn.mp4"
+      },
+      {
+        "name": "AC-4 L3 bbi_PC0_me_7dyn1lfe_514umx_dlg_2_disc",
+        "uri": "file:///sdcard/Download/bbi_PC0_me_7dyn1lfe_514umx_dlg_2_disc.mp4"
+      },
+      {
+        "name": "AC-4 L3 imrs_scpl_714_200_out_ch_cfg0123",
+        "uri": "file:///sdcard/Download/imrs_scpl_714_200_out_ch_cfg0123.mp4"
+      },
+      {
+        "name": "ACSE -- Poor Interleave",
+        "uri": "file:///sdcard/Download/075_Am04_F01_24_Selfie_Seaside_Tourism_cut.mp4"
+      },
+      {
+        "name": "2D-dvh1_20-00_2048x1080_24",
+        "uri": "file:///sdcard/Download/2D-dvh1_20-00_2048x1080_24.mp4"
+      },
+      {
+        "name": "Dolby Vision P8.4",
+        "uri": "file:///sdcard/Download/IMG_5602.mp4"
+      },
+      {
+        "name": "Dolby Vision P10.0",
+        "uri": "file:///sdcard/Download/ChromaPulseCTS__AV1_BT2020__1280x720_25fps__DV_P10.0.mp4"
+      },
+      {
+        "name": "Dolby Vision P10.1",
+        "uri": "file:///sdcard/Download/ChromaPulseCTS__AV1_BT2100_PQ__1280x720_25fps__DV_P10.1.mp4"
+      },
+      {
+        "name": "Dolby Vision P20.4",
+        "uri": "file:///sdcard/Download/P204_in84_container.mp4"
+      },
+      {
+        "name": "AC-4 IMS",
+        "uri": "file:///sdcard/Download/Audio_ID_720p_5994fps_h264_ims_112kbps_ac4.mp4"
+      },
+      {
+        "name": "AC-4 2.0",
+        "uri": "file:///sdcard/Download/Audio_ID_720p_25fps_h264_2ch_64kbps_ac4.mp4"
+      },
+      {
+        "name": "AC-4 5.1",
+        "uri": "file:///sdcard/Download/Audio_ID_720p_25fps_h264_6ch_128kbps_ac4.mp4"
+      },
+      {
+        "name": "Dolby Vision Profile 10",
+        "uri": "file:///sdcard/Download/profile_10.mp4"
+      }
+    ]
+  },
+  {
     "name": "Clear DASH",
     "samples": [
       {

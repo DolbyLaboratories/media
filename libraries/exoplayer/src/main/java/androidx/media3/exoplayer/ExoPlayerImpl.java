@@ -23,6 +23,7 @@ import static androidx.media3.common.C.TRACK_TYPE_IMAGE;
 import static androidx.media3.common.C.TRACK_TYPE_VIDEO;
 import static androidx.media3.common.util.Util.castNonNull;
 import static androidx.media3.exoplayer.Renderer.MSG_SET_AUDIO_ATTRIBUTES;
+import static androidx.media3.exoplayer.Renderer.MSG_SET_AUDIO_PRESENTATION;
 import static androidx.media3.exoplayer.Renderer.MSG_SET_AUDIO_SESSION_ID;
 import static androidx.media3.exoplayer.Renderer.MSG_SET_AUX_EFFECT_INFO;
 import static androidx.media3.exoplayer.Renderer.MSG_SET_CAMERA_MOTION_LISTENER;
@@ -45,6 +46,7 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.media.AudioDeviceInfo;
+import android.media.AudioPresentation;
 import android.media.MediaFormat;
 import android.os.Handler;
 import android.os.Looper;
@@ -53,6 +55,7 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.AudioAttributes;
@@ -359,6 +362,9 @@ import java.util.concurrent.CopyOnWriteArraySet;
           playbackInfoUpdate ->
               playbackInfoUpdateHandler.post(() -> handlePlaybackInfo(playbackInfoUpdate));
       playbackInfo = PlaybackInfo.createDummy(emptyTrackSelectorResult);
+      ExoPlayerImplInternal.AudioPresentationsChangeListener audioPresentationsChangeListener =
+          audioPresentations -> playbackInfoUpdateHandler.post(() ->
+              handleAudioPresentationsChange(audioPresentations));
       analyticsCollector.setPlayer(this.wrappingPlayer, applicationLooper);
       PlayerId playerId = new PlayerId(builder.playerName);
       internalPlayer =
@@ -384,7 +390,8 @@ import java.util.concurrent.CopyOnWriteArraySet;
               playerId,
               builder.playbackLooperProvider,
               preloadConfiguration,
-              frameMetadataListener);
+              frameMetadataListener,
+              audioPresentationsChangeListener);
       Looper playbackLooper = internalPlayer.getPlaybackLooper();
 
       volume = 1;
@@ -488,6 +495,12 @@ import java.util.concurrent.CopyOnWriteArraySet;
     } finally {
       constructorFinished.open();
     }
+  }
+
+  private void handleAudioPresentationsChange(List<AudioPresentation> audioPresentations) {
+    listeners.queueEvent(
+        Player.EVENT_AUDIO_PRESENTATIONS_CHANGED,
+        listener -> listener.onAudioPresentationsChanged(audioPresentations));
   }
 
   @Override
@@ -2032,6 +2045,12 @@ import java.util.concurrent.CopyOnWriteArraySet;
   public void setImageOutput(@Nullable ImageOutput imageOutput) {
     verifyApplicationThread();
     sendRendererMessage(TRACK_TYPE_IMAGE, MSG_SET_IMAGE_OUTPUT, imageOutput);
+  }
+
+  @Override
+  public void setAudioPresentation(AudioPresentation audioPresentation) {
+    verifyApplicationThread();
+    sendRendererMessage(TRACK_TYPE_AUDIO, MSG_SET_AUDIO_PRESENTATION, audioPresentation);
   }
 
   @SuppressWarnings("deprecation") // Calling deprecated methods.

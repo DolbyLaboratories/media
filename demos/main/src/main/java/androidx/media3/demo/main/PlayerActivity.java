@@ -40,6 +40,7 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSchemeDataSource;
@@ -56,18 +57,26 @@ import androidx.media3.exoplayer.offline.DownloadRequest;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.ads.AdsLoader;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.util.DebugTextViewHelper;
 import androidx.media3.exoplayer.util.EventLogger;
 import androidx.media3.ui.PlayerView;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** An activity that plays media using {@link ExoPlayer}. */
 public class PlayerActivity extends AppCompatActivity
     implements OnClickListener, PlayerView.ControllerVisibilityListener {
 
+  private static final String TAG = "PlayerActivity";
   // Saved instance state keys.
 
   private static final String KEY_TRACK_SELECTION_PARAMETERS = "track_selection_parameters";
@@ -75,6 +84,7 @@ public class PlayerActivity extends AppCompatActivity
   private static final String KEY_ITEM_INDEX = "item_index";
   private static final String KEY_POSITION = "position";
   private static final String KEY_AUTO_PLAY = "auto_play";
+  private static final String PLAYBACK_STATE_FILENAME = "playback_state";
 
   protected PlayerView playerView;
   protected LinearLayout debugRootView;
@@ -261,6 +271,7 @@ public class PlayerActivity extends AppCompatActivity
   /**
    * @return Whether initialization was successful.
    */
+  @OptIn(markerClass = UnstableApi.class)
   protected boolean initializePlayer() {
     Intent intent = getIntent();
     if (player == null) {
@@ -270,10 +281,16 @@ public class PlayerActivity extends AppCompatActivity
         return false;
       }
 
+      /* context= */
+      DefaultTrackSelector trackSelector = new DefaultTrackSelector(/* context= */ this);
+      trackSelector.setParameters(trackSelector.buildUponParameters()
+          .setTunnelingEnabled(intent.getBooleanExtra(IntentUtil.TUNNELING_ENABLE_EXTRA, false)));
+
       lastSeenTracks = Tracks.EMPTY;
       ExoPlayer.Builder playerBuilder =
           new ExoPlayer.Builder(/* context= */ this)
-              .setMediaSourceFactory(createMediaSourceFactory());
+              .setMediaSourceFactory(createMediaSourceFactory())
+              .setTrackSelector(trackSelector);
       setRenderersFactory(
           playerBuilder, intent.getBooleanExtra(IntentUtil.PREFER_EXTENSION_DECODERS_EXTRA, false));
       player = playerBuilder.build();
@@ -469,12 +486,30 @@ public class PlayerActivity extends AppCompatActivity
 
   private class PlayerEventListener implements Player.Listener {
 
+    @OptIn(markerClass = UnstableApi.class)
+    private void writePlaybackStateToFile(@Player.State int playbackState) {
+      Log.d(TAG, "Playback state: " + playbackState);
+      File out = new File(getApplicationContext().getExternalFilesDir(null),
+          PlayerActivity.PLAYBACK_STATE_FILENAME);
+      try {
+        boolean newFile = out.createNewFile();
+        OutputStream os = new FileOutputStream(out);
+        OutputStreamWriter osw = new OutputStreamWriter(os);
+        osw.write(String.valueOf(playbackState));
+        osw.close();
+      } catch (IOException e) {
+        Log.e(TAG, "Error writing " + out, e);
+        showToast(Objects.requireNonNull(e.getMessage()));
+      }
+    }
+
     @Override
     public void onPlaybackStateChanged(@Player.State int playbackState) {
       if (playbackState == Player.STATE_ENDED) {
         showControls();
       }
       updateButtonVisibility();
+      writePlaybackStateToFile(playbackState);
     }
 
     @Override

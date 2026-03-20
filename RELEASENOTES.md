@@ -1,5 +1,604 @@
 # Release notes
 
+## 1.9
+
+### 1.9.3 (2026-03-13)
+
+This release includes the following changes since
+[1.9.2 release](#192-2026-02-06):
+
+*   Audio:
+    *   Fix bug where playback gets stuck when playing a playlist of gapless
+        audio in compressed offload mode.
+
+### 1.9.2 (2026-02-06)
+
+This release includes the following changes since
+[1.9.1 release](#191-2026-01-26):
+
+*   ExoPlayer:
+    *   Fix bug where `ProgressiveMediaSource` propagates out-of-date timeline
+        info to player and the queued periods unexpectedly get removed
+        ([#3016](https://github.com/androidx/media/issues/3016)).
+*   Audio:
+    *   Improve the retry logic of `AudioOutput` initialization in
+        `DefaultAudioSink`
+        ([#2905](https://github.com/androidx/media/issues/2905)).
+*   Session:
+    *   Fix issue where system UI button placement workaround negatively affects
+        other UI surface like Android Auto or manufacturers not needing the
+        workaround ([#3041](https://github.com/androidx/media/issues/3041)).
+*   Cast extension:
+    *   Fix bug where transferring from Cast to local playback was broken.
+
+### 1.9.1 (2026-01-26)
+
+This release includes the following changes since
+[1.9.0 release](#190-2025-12-17):
+
+*   Common Library:
+    *   Support date-time strings with only hours in the timezone offset
+        ([#2929](https://github.com/androidx/media/issues/2929)).
+*   ExoPlayer:
+    *   Allow dynamic scheduling to slow `doSomeWork` interval only after audio
+        starts to support smoother A/V sync at beginning of playback.
+    *   Fix bug in `DefaultLoadErrorHandlingPolicy` where
+        `FileNotFoundException` and similar exception types were retried
+        multiple times.
+    *   Fix bug with dynamic scheduling where the calculated time for the next
+        `doSomeWork` was mistakenly reduced by the elapsed time of the current
+        iteration of `doSomeWork`. Addressing this hopefully extends CPU idle
+        time and saves power.
+    *   Fix issue where some playbacks of Dolby Vision files fail when
+        attempting to use a fallback AVC or HEVC codec.
+    *   Fix bug where loading continues after playback ended when removing the
+        currently playing item from a playlist
+        ([#2873](https://github.com/androidx/media/issues/2873)).
+    *   Avoid leaking `MediaItem` instances when repeatedly using
+        `ExoPlayer.replaceMediaItem` on the same item
+        ([#2993](https://github.com/androidx/media/issues/2993)).
+    *   Prevent potential ANRs caused by emergency wake lock releases
+        ([#2979](https://github.com/androidx/media/issues/2979)).
+*   Extractors:
+    *   MP3: Parse LAME ReplayGain data
+        ([#2840](https://github.com/androidx/media/pull/2840)).
+*   Audio:
+    *   Correctly remove support for `AC4Profile22` and other legacy profiles
+        when assessing AC-4 decoder support in Automotive scenarios
+        ([#2609](https://github.com/androidx/media/pull/2609)).
+*   Video:
+    *   Discard video codecs on devices below API 30 when the content frame rate
+        changes to avoid stuttering playback
+        ([#2941](https://github.com/androidx/media/issues/2941)).
+*   Text:
+    *   VobSub: Fix some missing subtitles by correctly handling SPUs that
+        either contain only a single control sequence, or have critical info
+        split across multiple control sequences
+        ([#2935](https://github.com/androidx/media/issues/2935)).
+*   IMA extension:
+    *   Bug fix: Corrected an issue where the ad MIME type did not match the
+        MIME type provided in the IMA LOADED event. The fix now maps the ad MIME
+        type using the ad pod index and ad position.
+    *   Add a null check before accessing result of `getAdsManager()` and
+        `AdEvent.getAd()`.
+*   Session:
+    *   Fix bug where stopping a `MediaController` connected to a platform
+        session crashed the app if stop happened during ad playback
+        ([#2948](https://github.com/androidx/media/issues/2948)).
+    *   Add additional verifications on `extras` `Bundle` instances in various
+        classes to guard against malformed `Bundle` instances sent from other
+        processes.
+    *   Fix issue where missing commands for `COMMAND_SEEK_NEXT` or
+        `COMMAND_SEEK_BACK` can cause gaps in the system media notification
+        ([#2976](https://github.com/androidx/media/issues/2976)).
+    *   Move bitmap scaling for notification icon off the main thread
+        ([#2829](https://github.com/androidx/media/issues/2829)).
+    *   Fix bug where author, writer and composer were not used as a fallback
+        when converting from legacy `MediaMetadataCompat` and
+        `MediaDescriptionCompat`
+        ([#3018](https://github.com/androidx/media/issues/3018)).
+*   Downloads:
+    *   Fix potential infinite loops when a `PriorityTooLowException` is handled
+        by `SegmentDownloader` (for DASH, HLS and SmoothStreaming). Custom
+        overrides of `SegmentDownloader` using the protected `execute` method
+        need to provide their task wrapped in a `Supplier` so it can be
+        recreated ([#2931](https://github.com/androidx/media/issues/2931)).
+*   HLS extension:
+    *   Pass the raw asset list JSON document to
+        `Listener.onAssetListLoadCompleted` callback. This is a breaking change
+        in an unstable API that requires apps that implement this callback to
+        add an additional argument of type `JSONObject`
+        ([#2950](https://github.com/androidx/media/issues/2950)).
+*   RTSP extension:
+    *   Correctly handle RTP Packets with timestamps that wrap around
+        ([#2930](https://github.com/androidx/media/issues/2930)).
+*   Decoder extensions (FFmpeg, VP9, AV1, etc.):
+    *   Fix potential `NullPointerException` that can occur when seeking prior
+        to processing the first video frame
+        ([#2965](https://github.com/androidx/media/issues/2965)).
+*   Cast extension:
+    *   Fix bug preventing the `RemoteCastPlayer` timeline from updating
+        correctly when replacing the playlist.
+
+### 1.9.0 (2025-12-17)
+
+*   Common Library:
+    *   Update `minSdk` to `23` in line with other AndroidX libraries.
+    *   Add `PlayerTransferState`, which facilitates transferring the playback
+        state across `Player` instances.
+    *   Add `void mute()` and `void unmute()` methods to Player that preserve
+        and consequently restore Player's volume before and after setting it to
+        zero.
+    *   Publish utility classes `WakeLockManager`, `WifiLockManager`,
+        `AudioFocusManager`, `AudioBecomingNoisyManager` and
+        `StuckPlayerDetector` previously used by `ExoPlayer` internally to allow
+        reuse for other players
+        ([#1893](https://github.com/androidx/media/issues/1893)).
+    *   Fix `ForwardingPlayer` listener handling when the underlying delegate
+        player uses reference equality for comparing listener instances
+        ([#2675](https://github.com/androidx/media/issues/2675)).
+    *   Add a `Player.listenTo` suspending extension function in the
+        `media3-common-ktx` library that specifies the particular
+        `Player.Events` that should be acted upon.
+    *   Fix a crash in `BasePlayer.getBufferedPercentage` resulting from integer
+        overflow when the reported buffered position is implausibly much larger
+        than the reported duration
+        ([#2750](https://github.com/androidx/media/issues/2750)).
+    *   Fix auto-detection of `TrackGroup` track type by not ignoring custom
+        sample MIME type and falling back to using the potentially wrong track
+        type from the container MIME type
+        ([#2860](https://github.com/androidx/media/issues/2860)).
+*   ExoPlayer:
+    *   Add a stuck player detection that triggers a `StuckPlayerException`
+        player error if the player seems stuck. This happens in the following
+        cases, where each default timeout can be configured in
+        `ExoPlayer.Builder` if required:
+        *   After 10 minutes of `STATE_BUFFERING` while trying to play and no
+            buffering progress.
+        *   After 10 seconds of `STATE_READY` while trying to play and no
+            playback progress.
+        *   After 1 minute of `STATE_READY` beyond the declared duration without
+            reaching the end of the item.
+        *   After 10 minutes with a playback suppression reason while trying to
+            play.
+    *   Enable wake lock handling by default to fix issues with buffering during
+        background playback. This is equivalent to setting
+        `ExoPlayer.Builder.setWakeMode` to `C.WAKE_MODE_LOCAL`.
+    *   Add listening logic to automatically update the virtual device ID when a
+        change is reported to the `Context` originally passed to
+        `ExoPlayer.Builder`.
+    *   Add `ExoPlayer.setVirtualDeviceId` to manually update the virtual device
+        ID obtained from the `Context` passed to `ExoPlayer.Builder`.
+    *   Ensure renderers don't consume data from the next playlist item more
+        than 10 seconds before the end of the current item.
+    *   Add `setSeekBackIncrementMs`, `setSeekForwardIncrementMs` and
+        `setMaxSeekToPreviousPositionMs` to `ExoPlayer` to update these settings
+        after construction
+        ([#2736](https://github.com/androidx/media/issues/2736)).
+    *   Add pre-caching functionality in `DefaultPreloadManager`. Apps now can
+        return
+        `DefaultPreloadManager.PreloadStatus.specifiedRangeCached(startPositionMs,
+        durationMs)` or
+        `DefaultPreloadManager.PreloadStatus.specifiedRangeCached(durationMs)`
+        via `TargetPreloadStatusControl.getTargetPreloadStatus(T rankingData)`
+        to indicate that a media item needs to be pre-cached.
+    *   Use pre-caching functionality of `DefaultPreloadManager` in shortform
+        demo app.
+    *   Add `DefaultLoadControl.Builder` setters for local playback and adjust
+        default values of `DefaultLoadControl` to work well with a wide range of
+        local files.
+    *   Fix bug where setting an empty playlist can leave the player in
+        `STATE_READY` or `STATE_BUFFERING`.
+    *   Enhance the preload manager APIs:
+        *   Add `addMediaItems(List<MediaItem>, List<T>)` and
+            `addMediaSources(List<MediaSource>, List<T>)` that add the media
+            items or media sources in batch, and automatically call
+            `invalidate()` afterwards.
+        *   Add `removeMediaItems((List<MediaItem>)` and
+            `removeMediaSources(List<MediaSource>)` that remove the media items
+            or media sources in batch, and make sure that preload manager does
+            not start to preload or continue preloading any of them after
+            removal.
+        *   Allow `DefaultPreloadManager.setCurrentPlayingIndex(int)` to
+            invalidate itself automatically. Apps don't need to call
+            `invalidate()` explicitly anymore after updating the current playing
+            index.
+    *   Add capability to skip keyframe reset for forward seeks within the same
+        group of pictures while in scrubbing mode.
+    *   Add `DefaultLoadControl.Builder.setPlayerTargetBufferBytes(String, int)`
+        for apps to set a value of target buffer bytes for a player with the
+        specified `playerName`. The `DefaultLoadControl` can now make decisions
+        of each player separately based on its own allocated bytes and target
+        buffer bytes.
+    *   Add `SkipInfo` to the `AdPlaybackState.AdGroup` to carry skip
+        information for each ad in the ad group.
+    *   Fix bug where calling `removeMediaItems(List)` during playing a
+        post-roll created a crash
+        ([#2746](https://github.com/androidx/media/issues/2746)).
+    *   Fix some stuttering in playlist playback where frames were mistakenly
+        always set as the last sample and rendered.
+    *   Enable retry path if player fails to generate audio session ID
+        ([#2382](https://github.com/androidx/media/issues/2382),
+        [#2678](https://github.com/google/ExoPlayer/issues/2678)).
+    *   Add support to control the total buffer bytes for the sources in
+        `DefaultPreloadManager` to avoid total buffer bytes for preloading from
+        growing arbitrarily. To use the default control logic, Apps can set the
+        target buffer bytes for preloading via
+        `DefaultLoadControl.Builder.setPlayerTargetBufferBytes(String, int)` for
+        a `playerName` of `PlayerId.Preload.name` ("preload"), and inject the
+        created `DefaultLoadControl` via
+        `DefaultPreloadManager.Builder.setLoadControl(LoadControl)`.
+    *   Add `cloneAndSet(int, int)` to `ShuffleOrder` with a default
+        implementation ([#2834](https://github.com/androidx/media/pull/2834)).
+    *   Append content resume offset when skipping ad playback after seek
+        adjustment or auto transition
+        ([#2484](https://github.com/androidx/media/issues/2484)).
+    *   Add API to set and observe codec parameters for audio and video tracks.
+        This feature is implemented for `MediaCodec` based renderers and
+        requires API 29+.
+        *   Use `ExoPlayer.setAudioCodecParameters()` and
+            `ExoPlayer.setVideoCodecParameters()` to apply parameters.
+        *   Use `ExoPlayer.addAudioCodecParametersChangeListener()` and
+            `ExoPlayer.addVideoCodecParametersChangeListener()` to listen for
+            changes. Observing vendor-specific keys requires API 31+.
+    *   Fix `IllegalStateException` caused by setting an empty media source
+        after seeking to a non-zero position and then preparing the player with
+        a non-empty media source.
+    *   Fix bug where seeking into other media items while in scrubbing mode
+        could cause `IllegalStateException`.
+    *   Fix potential `NullPointerException` in `DefaultPlaybackSessionManager`
+        ([#2885](https://github.com/androidx/media/issues/2885)).
+    *   Enable improvements in seeking performance for eligible videos.
+    *   Re-enable use of asynchronous decryption in MediaCodec on API 36+ where
+        timeout issues with this platform API have been fixed
+        ([#1641](https://github.com/androidx/media/issues/1641)).
+    *   Change the default value of
+        `MediaCodecVideoRenderer.experimentalSetLateThresholdToDropDecoderInputUs`
+        to 15ms and enable more efficient dropping of video frames before
+        decoding for eligible videos.
+    *   Add maximum memory limit to the automatic memory calculation in
+        `DefaultLoadControl`. This should only take effect if an excessive
+        number of tracks get selected
+        ([#2860](https://github.com/androidx/media/issues/2860)).
+    *   Fix bug where, if playing in a playlist or repeat mode, seeking in scrub
+        mode near the end could cause a seek to the next media item.
+*   CompositionPlayer:
+    *   Publish `CompositionPlayer` under a new `@ExperimentalApi` annotation to
+        indicate it is available for experimentation, but is still under
+        development. Some APIs are likely to change significantly in future
+        releases, and there are known issues and limitations with some use-cases
+        (some undocumented).
+    *   Add support for `COMMAND_SET_AUDIO_ATTRIBUTES` and audio focus handling
+        in `CompositionPlayer`.
+    *   Add support for speed changing in secondary sequences in
+        `CompositionPlayer`.
+    *   Add support for `EditedMediaItem.removeVideo`.
+*   Transformer:
+    *   Use `InAppMp4Muxer` as default muxer.
+    *   Add `EditedMediaItem.Builder#setSpeed()` and deprecate
+        `Effects#createExperimentalSpeedChangingEffects()`.
+    *   Replace `forceAudioTrack` and `forceVideoTrack` with `trackTypes` in
+        `EditedMediaItemSequence`.
+*   Track Selection:
+    *   Add `TrackSelectionParameters.selectTextByDefault` to prefer the
+        selection of any text track without specifying other more specific
+        preferences.
+    *   Add `preferredVideoLabels`, `preferredAudioLabels` and
+        `preferredTextLabels` in `TrackSelectionParameters` to specify a
+        preference for tracks with a specific label, for example those read from
+        HLS NAME tags ([#1666](https://github.com/androidx/media/issues/1666)).
+*   Extractors:
+    *   FLAC: Tighten header detection to reduce the chance of finding spurious
+        headers in the encoded FLAC data, resulting in decoding errors
+        ([#558](https://github.com/androidx/media/issues/558)).
+    *   MP3: Allow gaps between (and before) ID3 tags at the beginning of MP3
+        files ([#811](https://github.com/androidx/media/issues/811),
+        [#5718](https://github.com/google/ExoPlayer/issues/5718)).
+    *   MP3: Increase sniffing limit to 128kB to match the existing search limit
+        for a sync byte
+        ([#2713](https://github.com/androidx/media/issues/2713)).
+    *   MP3: Change `FLAG_ENABLE_INDEX_SEEKING` to prefer seeking information
+        from metadata headers (like Xing and VBRI) when available, falling back
+        to index-based seeking if no other seeking information is present. This
+        improves performance for files with seeking metadata
+        ([#2839](https://github.com/androidx/media/issues/2839)).
+    *   MP3: Change `Mp3Extractor` to default to a constant bitrate (CBR)
+        assumption when no seeking metadata (e.g., Xing, VBRI) is found, even
+        when `FLAG_ENABLE_INDEX_SEEKING` is set. This is based on the MP3
+        specification's history, where CBR was standard and VBR requires
+        explicit headers. This improves immediate seekability for files without
+        metadata at the cost of potential accuracy for VBR files lacking
+        headers. Index seeking is now used as a fallback if the CBR assumption
+        is not seekable (e.g., for streams of unknown length)
+        ([#2848](https://github.com/androidx/media/issues/2848)).
+    *   MP4: Disambiguate between `audio/mpeg` (MP3), `audio/mpeg-L1` and
+        `audio/mpeg-L2` MIME types by peeking the layer value of the first
+        sample before emitting a track format from the extractor
+        ([#2683](https://github.com/androidx/media/issues/2683)).
+    *   MP4: Improve sniffing efficiency of very large files by assuming a
+        `stbl` box larger than 1MB implies the file must be non-fragmented
+        ([#2650](https://github.com/androidx/media/issues/2650)).
+    *   MP4: Add support for `©mvn` (movement name) and `©mvi` (movement index)
+        metadata, these are now emitted as `TextInformationFrame` objects in
+        `Format.metadata` with IDs of `MVNM` and `MVIN` respectively
+        ([#2754](https://github.com/androidx/media/issues/2754)).
+    *   MP4: Ignore tracks with missing `stsd` box (instead of failing to parse
+        the whole file).
+    *   Matroska: Add support for DTS-HD detection
+        ([#6225](https://github.com/google/ExoPlayer/issues/6225)).
+    *   Fix an issue in `MatroskaExtractor` where seeking could be inaccurate
+        for files with multiple tracks. Cue points are now correctly associated
+        with their respective tracks, leading to more precise seeking.
+    *   MPEG-TS: Fix `IllegalArgumentException` from `ReorderingBufferQueue`
+        caused by PES packets with no timestamp
+        ([#2764](https://github.com/androidx/media/issues/2764)).
+    *   Add support for extracting HEIC Motion Photos. The `HeifExtractor` can
+        now parse HEIC files containing embedded video and audio tracks.
+*   Inspector:
+    *   Introduced a new `:media3-inspector` module to serve as the dedicated
+        home for media inspection utilities. This module now houses a new
+        `androidx.media3.inspector.MetadataRetriever`, which will provide a
+        unified API for both metadata and frame extraction. The existing
+        `androidx.media3.exoplayer.MetadataRetriever` is now deprecated in favor
+        of this new version.
+    *   Introduced `androidx.media3.inspector.FrameExtractor`, a new public API
+        for frame extraction. This `AutoCloseable` class provides a way to
+        extract frames with support for HDR video, video effects, and custom
+        decoder selection. It should be created via its `Builder` for a specific
+        `MediaItem`.
+    *   FrameExtractor: Add `getThumbnail()` to extract a representative
+        thumbnail frame from a media file without requiring a specific
+        timestamp.
+    *   Add `androidx.media3.inspector.MediaExtractorCompat`, a drop-in
+        replacement for the platform's `android.media.MediaExtractor` that
+        provides a way to extract raw, encoded media samples from a media file.
+        The existing `androidx.media3.exoplayer.MediaExtractorCompat` is now
+        deprecated in favor of this new class.
+*   Audio:
+    *   Make `AudioProcessor` instances aware of seeking.
+    *   Allow injecting the new `AudioOutputProvider` interface into
+        `DefaultAudioSink.Builder` to support custom audio output paths. The
+        default is `AudioTrackAudioOutputProvider`.
+    *   Handle seeks in `GainProcessor`.
+    *   Utilize AC-4 decoder profile and level capabilities in track format
+        support assessment
+        ([#2580](https://github.com/androidx/media/pull/2580)).
+    *   Avoid potential delays caused by handling routing change callbacks at
+        the beginning of playback
+        ([#2646](https://github.com/androidx/media/issues/2646)).
+    *   Allow codec reuse for EAC3, EAC3-JOC and AC-4 formats
+        ([#1346](https://github.com/androidx/media/pull/1346)).
+    *   Add support for float PCM samples in `Sonic`.
+    *   Add support for 16 bit PCM samples in `ToFloatPcmAudioProcessor`.
+*   Video:
+    *   Disable codec reuse for Dolby-Vision content with different profiles.
+    *   Re-enable workaround for wrongly reported performance points for secure
+        codecs ([#2856](https://github.com/androidx/media/issues/2856)).
+*   Text:
+    *   Fix parsing of CEA-6/708 subtitles in Dolby Vision content
+        ([#2775](https://github.com/androidx/media/issues/2775)).
+*   Image:
+    *   Fix ScrubbingMode issue where player gets stuck while scrubbing a DASH
+        thumbnail track
+        ([#2815](https://github.com/androidx/media/issues/2815)).
+*   DRM:
+    *   Change the return type of `MediaDrmCallback` methods from `byte[]` to a
+        new `MediaDrmCallback.Response` type, to allow returning extra optional
+        information. This is a source breaking change, but breakages can be
+        easily resolved by wrapping the previous `byte[]` return value with `new
+        Response` before returning.
+    *   Add key request info like URL and latency to
+        `AnalyticsListener.onDrmKeysLoaded`
+        ([#1001](https://github.com/androidx/media/issues/1001)).
+    *   Move provisioning request data from a URL parameter to the POST body.
+*   Effect:
+    *   Add `Presentation.copyWithUnsetSideRoundedTo` to round the unset output
+        side when `Presentation` is created with a single side length.
+*   Muxers:
+    *   Add `MediaMuxerCompat`, a drop-in replacement for framework
+        `MediaMuxer`.
+    *   Add `MuxerUtil.createMotionPhotoFromJpegImageAndBmffVideo()` to allow
+        Motion Photo creation.
+    *   Add `WebmMuxer` to allow muxing of `OPUS`, `VORBIS`, `VP8` and `VP9`
+        media streams into a `webm` file format.
+*   IMA extension:
+    *   Removal of custom proguard rules, so that apps can use those released in
+        IMA android archive instead.
+    *   Add `ImaServerSideAdInsertionUriBuilder.setNetworkCode`, a new API for
+        setting the Google Ad Manager network code for the IMA SDK to handle ads
+        identifiers as specified in Google Ad Manager settings. Network codes
+        are optional but recommended for Full service stream requests. To find
+        the network code, see
+        [this article](http://support.google.com/admanager/answer/7674889).
+    *   Bump IMA dependency to 3.37.0 which requires enabling core library
+        desugaring. This must also be enabled by dependent apps too. See IMA's
+        [config notes](https://developers.google.com/interactive-media-ads/docs/sdks/android/client-side/get-started#2.-add-the-ima-sdk-to-your-project).
+    *   Support IMA DAI custom UI options in SSAI URI builder. Custom UI options
+        for server side ad insertion include “Skippable” and “About This Ad”
+        rendering support. The feature is currently available for selected
+        publishers behind an allow list. This change also upgrades the IMA SDK
+        version to 3.38.0
+        ([release notes](https://developers.google.com/interactive-media-ads/docs/sdks/android/client-side/history))
+        to access the custom UI options API.
+    *   Fix issue where content preparation error for content after an ad would
+        be wrongly reported as an ad playback error
+        ([#2656](https://github.com/androidx/media/issues/2656)).
+*   Session:
+    *   Add new parameter to `MediaSession.Callback.onPlaybackResumption` to
+        indicate if the call happens to gather information only or to start
+        playback ([#1764](https://github.com/androidx/media/issues/1764)).
+    *   Update `MediaSession.ControllerInfo.isTrusted` to also declare
+        controllers from the own app as trusted
+        ([#2542](https://github.com/androidx/media/issues/2542)).
+    *   Add `MediaSessionService.triggerNotificationUpdate` to manually trigger
+        a notification update
+        ([#1833](https://github.com/androidx/media/issues/1833)).
+    *   Add `ProgressListener` to custom command methods.
+    *   Change the default value for
+        `MediaLibrarySession.Builder.setLibraryErrorReplicationMode` to non
+        fatal.
+    *   Add a `Context` parameter to
+        `MediaButtonReceiver.onForegroundServiceStartNotAllowedException`
+        ([#2625](https://github.com/androidx/media/pull/2625)).
+    *   Read the volume control ID from the platform `PlaybackInfo` instead of
+        fetching it via binder. This ensures that playback type and volume
+        control ID are read atomically and do match to each other.
+    *   Fix bug where `ACTION_UP` key events were filtered out before passing
+        them to the callback for custom handling. This brings parity with what
+        media1 did and the platform does
+        ([#2637](https://github.com/androidx/media/issues/2637)).
+    *   Fix bug where `getCurrentTimeline()` was called by `PlayerWrapper` even
+        when the command isn't available
+        ([#2665](https://github.com/androidx/media/issues/2665)).
+    *   Fix bug where a message was left in the message queue of the main looper
+        which caused a memory leak after the service terminated
+        ([#2692](https://github.com/androidx/media/issues/2692)).
+    *   When connected to a legacy session app with a `MediaBrowser`, custom
+        commands are sent to the session only if the custom action is advertised
+        as a custom action in `PlaybackStateCompat` of the legacy session. All
+        other custom actions are sent to the service.
+    *   Implemented `onAudioSessionIdChanged` to notify media controllers when
+        an audio session ID is set by the session
+        ([#244](https://github.com/androidx/media/issues/244)).
+    *   Fix bug where `KEYCODE_HEADSETHOOK` did not start the player upon and
+        media key event `Intent` arriving in `onStartCommand()`. This is fixed
+        by handling 'KEYCODE_HEADSETHOOK' just like `KEYCODE_MEDIA_PLAY_PAUSE`
+        ([#2816](https://github.com/androidx/media/pull/2816)).
+    *   Fix a bug where Surface size was not communicated between the session
+        and the controller, resulting in the failure to apply video effects in
+        demo-session. If you are using a controller, this might be a breaking
+        change if your player cannot handle a `setVideoSurfaceHolder` call.
+    *   Fix propagation of non-`String` `CharSequence` metadata values like
+        span-styled strings
+        ([#2853](https://github.com/androidx/media/issues/2853)).
+    *   Add `CommandButton.executeAction` so that controllers can more easily
+        trigger the intended action. Also allow to specify parameters for some
+        player and session commands to define which action to trigger.
+    *   Add backwards-compatibility for `CommandButton` instances using
+        `Player.Command` or non-custom `SessionCommand` to define their action.
+        These are now correctly represented in platform media sessions, for
+        example for System UI or Android Auto.
+    *   Fix issue where the same `Bitmap` is compressed multiple times when
+        connecting a `MediaController` to a platform media session.
+*   UI:
+    *   Add `ProgressStateWithTickInterval` class and the corresponding
+        `rememberProgressStateWithTickInterval` Composable to
+        `media3-ui-compose` module. This state holder is used in `demo-compose`
+        to display the current position and duration in text form.
+    *   Add `MuteButtonState` to `ui-compose` that handles muting of the
+        `Player` volume. This state holder is used in `demo-compose` to display
+        mute/unmute toggle button.
+    *   Add `ProgressStateWithTickCount` classes and the corresponding
+        `rememberProgressStateWithTickCount` Composable to `media3-ui-compose`
+        module. This state holder is used in `demo-compose` to display progress
+        as a horizontal read-only progress bar.
+    *   Add `ContentFrame` Composable to `media3-ui-compose` which combines
+        `PlayerSurface` management with aspect ratio resizing and covering with
+        a shutter.
+    *   Work around a known API 34 platform bug causing stretched/cropped videos
+        when using `SurfaceView` inside a Compose `AndroidView` and hence
+        affecting `ContentFrame` and `PlayerSurface` Composables with
+        `SURFACE_TYPE_SURFACE_VIEW`
+        ([#1237](https://github.com/androidx/media/issues/1237),
+        [#2811](https://github.com/androidx/media/issues/2811)).
+    *   Create a new `media3-ui-compose-material3` module and add
+        Material3-themed Composables (PlayPauseButton, NextButton,
+        PreviousButton, SeekBackButton, SeekForwardButton, RepeatButton,
+        ShuffleButton, MuteButton) to it.
+    *   Add `TimeText` composable to `media3-ui-compose-material3` for
+        displaying player progress in a textual form. It can be configured to
+        show the current position, duration, or remaining time.
+    *   Add support for placing a media route button in the `PlayerView`.
+    *   Use `BidiFormatter` to correctly display punctuation in RTL text
+        subtitles ([#11214](https://github.com/google/ExoPlayer/issues/11214)).
+*   HLS extension:
+    *   Parse HLS interstitial skip attributes.
+    *   Map skip control attributes from the HLS playlist and the asset list
+        document into the `AdPlaybackState` for public access.
+    *   Fix bug where the start time of the playlist was dropped when the
+        EXT-X-PROGRAM-START-DATE tag defining the start time was removed from a
+        playlist ([#2760](https://github.com/androidx/media/issues/2760)).
+    *   Use binary search to find the segment index of a given position in the
+        playlist ([#2826](https://github.com/androidx/media/pull/2826)).
+    *   Add `HlsInterstitialsAdsLoader.skipCurrentAd()` and
+        `skipCurrentAdGroup()` and corresponding methods to skip ads and ad
+        groups by index.
+    *   Add `HlsInterstitialsAdsLoader.Listener.onAdStarted` to report the start
+        of an ad period
+        ([#2859](https://github.com/androidx/media/issues/2859)).
+    *   Accept space as a date/time separator in ISO 8601 date-time strings.
+    *   Properly handle fetching the next chunk for an `HlsMediaPlaylist` with
+        no segments ([#2821](https://github.com/androidx/media/issues/2821)).
+    *   Use the default start position for pre rolls with live streams.
+*   DASH extension:
+    *   Fix `UnsupportedOperationException` when playing DASH streams with a
+        non-hierarchical `data:` URI manifest
+        ([#2688](https://github.com/androidx/media/issues/2688)).
+    *   Reset `LiveConfiguration` to the value provided by the `MediaItem` of
+        the `DashMediaSource` when released and when the media item is updated
+        by the user ([#2606](https://github.com/androidx/media/issues/2606)).
+    *   Avoid crashes caused by invalid manifest updates that were not reported
+        as player errors
+        ([#2805](https://github.com/androidx/media/issues/2805)).
+*   RTSP extension:
+    *   Handle error of missing RTP packets when processing fragmented NAL units
+        for H264 and H265
+        ([#2613](https://github.com/androidx/media/issues/2613)).
+*   Decoder extensions (FFmpeg, VP9, AV1, etc.):
+    *   AV1 Extension: The AV1 software decoder now uses the high-performance
+        `dav1d` library, replacing the previous `libgav1` implementation for
+        improved decoding speed.
+    *   FFmpeg extension: Fix an issue that prevented some FLAC files from
+        playing by ensuring the `STREAMINFO` block is correctly parsed and
+        passed to the decoder
+        ([#2887](https://github.com/androidx/media/issues/2887)).
+*   Cast extension:
+    *   Add `CastPlayer.Builder`, which enables `CastPlayer` to do both local
+        and Cast playback. To keep the old `CastPlayer` behavior of supporting
+        only Cast playback, you can use `RemoteCastPlayer`. The pre-existing
+        `CastPlayer` constructors keep their old behavior, but are deprecated in
+        favour of using the `CastPlayer` or `RemoteCastPlayer` builders instead.
+    *   Stop enforcing a non-null mime type in `DefaultMediaItemConverter`.
+    *   Use `MediaItem.mediaMetadata.mediaType` to infer the Cast MEDIA_TYPE to
+        use in `DefaultCastOptionsProvider#toMediaQueueItem`, when available.
+    *   Enable remote to local transfers in `DefaultCastOptionsProvider`.
+    *   Add support for Cast in the Session demo.
+    *   Add support for displaying a media route button on a Composable UI.
+    *   Add support for displaying a media route button on an action bar menu.
+    *   Add support for displaying a media route button as a View UI.
+*   Test Utilities:
+    *   Add maximum time diff for the auto-advancing behavior of `FakeClock`. It
+        defaults to 1 second, but is configurable via `FakeClock.Builder`.
+    *   Add maximum time diff between messages for
+        `RobolectricUtil.runMainLooperUntil` (and `runLooperUntil`). It defaults
+        to 1 second, but is configurable via new overloads of these methods.
+    *   Move `CapturingRenderersFactory` from `test-utils` to
+        `test-utils-robolectric`.
+*   Remove deprecated symbols:
+    *   Remove deprecated `DefaultPreloadManager` constructor. Use
+        `DefaultPreloadManager.Builder` instead.
+    *   Removed deprecated `EditedMediaItemSequence` constructors. Use
+        `EditedMediaItemSequence.Builder` instead.
+    *   Remove `BitmapFactoryImageDecoder.BitmapDecoder`. Use
+        `ExternallyLoadedImageDecoder` instead.
+    *   Remove deprecated `ShadowMediaCodecConfig.forAllSupportedMimeTypes()`.
+        Use `ShadowMediaCodecConfig.withAllDefaultSupportedCodecs()` instead.
+    *   Remove deprecated
+        `ShadowMediaCodecConfig.withNoDefaultSupportedMimeTypes()`. Use
+        `ShadowMediaCodecConfig.withNoDefaultSupportedCodecs()` instead.
+
+### 1.9.0-rc01 (2025-12-01)
+
+Use the 1.9.0 [stable version](#190-2025-12-17).
+
+### 1.9.0-beta01 (2025-11-13)
+
+Use the 1.9.0 [stable version](#190-2025-12-17).
+
+### 1.9.0-alpha01 (2025-10-22)
+
+Use the 1.9.0 [stable version](#190-2025-12-17).
+
 ## 1.8
 
 ### 1.8.0 (2025-07-30)

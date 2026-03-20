@@ -15,6 +15,7 @@
  */
 package androidx.media3.session;
 
+import static android.view.KeyEvent.KEYCODE_HEADSETHOOK;
 import static android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD;
 import static android.view.KeyEvent.KEYCODE_MEDIA_NEXT;
 import static android.view.KeyEvent.KEYCODE_MEDIA_PAUSE;
@@ -27,21 +28,23 @@ import static android.view.KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD;
 import static android.view.KeyEvent.KEYCODE_MEDIA_STOP;
 import static androidx.media3.common.Player.COMMAND_CHANGE_MEDIA_ITEMS;
 import static androidx.media3.common.Player.COMMAND_SET_MEDIA_ITEM;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
 import static androidx.media3.common.util.Util.postOrRun;
 import static androidx.media3.session.MediaSessionStub.UNKNOWN_SEQUENCE_NUMBER;
 import static androidx.media3.session.SessionError.ERROR_SESSION_DISCONNECTED;
 import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
 import static androidx.media3.session.SessionError.INFO_CANCELLED;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static java.lang.Math.max;
 
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
 import android.media.session.MediaSession.Token;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.DeadObjectException;
 import android.os.Handler;
@@ -51,6 +54,7 @@ import android.os.Message;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.util.TypedValue;
 import android.view.KeyEvent;
 import android.view.ViewConfiguration;
 import androidx.annotation.CheckResult;
@@ -84,6 +88,8 @@ import androidx.media3.session.MediaSession.MediaItemsWithStartPosition;
 import androidx.media3.session.SequencedFutureManager.SequencedFuture;
 import androidx.media3.session.legacy.MediaBrowserServiceCompat;
 import androidx.media3.session.legacy.MediaSessionCompat;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -130,6 +136,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   private final Handler mainHandler;
   private final boolean playIfSuppressed;
   private final boolean isPeriodicPositionUpdateEnabled;
+  private final boolean useLegacySurfaceHandling;
   private final ImmutableList<CommandButton> commandButtonsForMediaItems;
 
   private PlayerInfo playerInfo;
@@ -169,7 +176,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       Bundle sessionExtras,
       BitmapLoader bitmapLoader,
       boolean playIfSuppressed,
-      boolean isPeriodicPositionUpdateEnabled) {
+      boolean isPeriodicPositionUpdateEnabled,
+      boolean useLegacySurfaceHandling) {
     Log.i(
         TAG,
         "Init "
@@ -191,6 +199,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     this.bitmapLoader = bitmapLoader;
     this.playIfSuppressed = playIfSuppressed;
     this.isPeriodicPositionUpdateEnabled = isPeriodicPositionUpdateEnabled;
+    this.useLegacySurfaceHandling = useLegacySurfaceHandling;
 
     @SuppressWarnings("nullness:assignment")
     @Initialized
@@ -277,7 +286,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       @Nullable PlayerWrapper oldPlayerWrapper, PlayerWrapper newPlayerWrapper) {
     playerWrapper = newPlayerWrapper;
     if (oldPlayerWrapper != null) {
-      oldPlayerWrapper.removeListener(checkStateNotNull(this.playerListener));
+      oldPlayerWrapper.removeListener(checkNotNull(this.playerListener));
     }
     PlayerListener playerListener = new PlayerListener(this, newPlayerWrapper);
     newPlayerWrapper.addListener(playerListener);
@@ -682,6 +691,10 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     return playIfSuppressed;
   }
 
+  public boolean shouldUseLegacySurfaceHandling() {
+    return useLegacySurfaceHandling;
+  }
+
   public void setAvailableCommands(
       ControllerInfo controller, SessionCommands sessionCommands, Player.Commands playerCommands) {
     if (sessionStub.getConnectedControllersManager().isConnected(controller)) {
@@ -766,7 +779,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
             MediaUtils.intersect(
                 controllersManager.getAvailablePlayerCommands(controller),
                 getPlayerWrapper().getAvailableCommands());
-        checkStateNotNull(controller.getControllerCb())
+        checkNotNull(controller.getControllerCb())
             .onPlayerInfoChanged(
                 seq,
                 playerInfoInErrorStateForController == null
@@ -810,6 +823,19 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       ControllerInfo controller, SessionCommand command, Bundle args) {
     return dispatchRemoteControllerTask(
         controller, (cb, seq) -> cb.sendCustomCommand(seq, command, args));
+  }
+
+  public void sendCustomCommandProgressUpdate(
+      ControllerInfo controller,
+      int customCommandFutureSequence,
+      SessionCommand command,
+      Bundle args,
+      Bundle progressData) {
+    dispatchRemoteControllerTaskWithoutReturn(
+        controller,
+        (cb, seq) ->
+            cb.sendCustomCommandProgressUpdate(
+                customCommandFutureSequence, command, args, progressData));
   }
 
   public void sendError(ControllerInfo controllerInfo, SessionError sessionError) {
@@ -921,10 +947,17 @@ import org.checkerframework.checker.initialization.qual.Initialized;
   }
 
   public ListenableFuture<SessionResult> onCustomCommandOnHandler(
-      ControllerInfo controller, SessionCommand command, Bundle extras) {
+      ControllerInfo controller,
+      @Nullable MediaSession.ProgressReporter progressReporter,
+      SessionCommand command,
+      Bundle extras) {
     return checkNotNull(
         callback.onCustomCommand(
-            instance, resolveControllerInfoForCallback(controller), command, extras),
+            instance,
+            resolveControllerInfoForCallback(controller),
+            command,
+            extras,
+            progressReporter),
         "Callback.onCustomCommandOnHandler must return non-null future");
   }
 
@@ -1135,7 +1168,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       @Nullable
       ListenableFuture<MediaItemsWithStartPosition> future =
           checkNotNull(
-              callback.onPlaybackResumption(instance, controllerForRequest),
+              callback.onPlaybackResumption(
+                  instance, controllerForRequest, /* isForPlayback= */ true),
               "Callback.onPlaybackResumption must return a non-null future");
       Futures.addCallback(
           future,
@@ -1392,8 +1426,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     if (!Objects.equals(intent.getAction(), Intent.ACTION_MEDIA_BUTTON)
         || (intentComponent != null
             && !Objects.equals(intentComponent.getPackageName(), context.getPackageName()))
-        || keyEvent == null
-        || keyEvent.getAction() != KeyEvent.ACTION_DOWN) {
+        || keyEvent == null) {
       return false;
     }
 
@@ -1402,13 +1435,35 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       // Event handled by app callback.
       return true;
     }
+
+    if (keyEvent.getAction() != KeyEvent.ACTION_DOWN) {
+      switch (keyEvent.getKeyCode()) {
+        case KEYCODE_MEDIA_PLAY_PAUSE:
+        case KEYCODE_HEADSETHOOK:
+        case KEYCODE_MEDIA_PLAY:
+        case KEYCODE_MEDIA_PAUSE:
+        case KEYCODE_MEDIA_NEXT:
+        case KEYCODE_MEDIA_SKIP_FORWARD:
+        case KEYCODE_MEDIA_PREVIOUS:
+        case KEYCODE_MEDIA_SKIP_BACKWARD:
+        case KEYCODE_MEDIA_FAST_FORWARD:
+        case KEYCODE_MEDIA_REWIND:
+        case KEYCODE_MEDIA_STOP:
+          // The default implementation is handling action down of these key codes. Signal to handle
+          // corresponding non-down actions as well.
+          return true;
+        default:
+          return false;
+      }
+    }
+
     // Double tap detection.
     int keyCode = keyEvent.getKeyCode();
     boolean isTvApp = context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LEANBACK);
     boolean doubleTapCompleted = false;
     switch (keyCode) {
-      case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
-      case KeyEvent.KEYCODE_HEADSETHOOK:
+      case KEYCODE_MEDIA_PLAY_PAUSE:
+      case KEYCODE_HEADSETHOOK:
         if (isTvApp
             || callerInfo.getControllerVersion() != ControllerInfo.LEGACY_CONTROLLER_VERSION
             || keyEvent.getRepeatCount() != 0) {
@@ -1433,7 +1488,7 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
 
     if (!isMediaNotificationControllerConnected()) {
-      if ((keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_HEADSETHOOK)
+      if ((keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KEYCODE_HEADSETHOOK)
           && doubleTapCompleted) {
         // Double tap completion for legacy when media notification controller is disabled.
         sessionLegacyStub.onSkipToNext();
@@ -1450,7 +1505,8 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     boolean isDismissNotificationEvent =
         intent.getBooleanExtra(
             MediaNotification.NOTIFICATION_DISMISSED_EVENT_KEY, /* defaultValue= */ false);
-    return applyMediaButtonKeyEvent(keyEvent, doubleTapCompleted, isDismissNotificationEvent);
+    return keyEvent.getRepeatCount() > 0
+        || applyMediaButtonKeyEvent(keyEvent, doubleTapCompleted, isDismissNotificationEvent);
   }
 
   private boolean applyMediaButtonKeyEvent(
@@ -1458,12 +1514,13 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     ControllerInfo controllerInfo = checkNotNull(instance.getMediaNotificationControllerInfo());
     Runnable command;
     int keyCode = keyEvent.getKeyCode();
-    if ((keyCode == KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_HEADSETHOOK)
+    if ((keyCode == KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KEYCODE_HEADSETHOOK)
         && doubleTapCompleted) {
       keyCode = KEYCODE_MEDIA_NEXT;
     }
     switch (keyCode) {
       case KEYCODE_MEDIA_PLAY_PAUSE:
+      case KEYCODE_HEADSETHOOK:
         command =
             getPlayerWrapper().getPlayWhenReady()
                 ? () -> sessionStub.pauseForControllerInfo(controllerInfo, UNKNOWN_SEQUENCE_NUMBER)
@@ -1475,12 +1532,12 @@ import org.checkerframework.checker.initialization.qual.Initialized;
       case KEYCODE_MEDIA_PAUSE:
         command = () -> sessionStub.pauseForControllerInfo(controllerInfo, UNKNOWN_SEQUENCE_NUMBER);
         break;
-      case KEYCODE_MEDIA_NEXT: // Fall through.
+      case KEYCODE_MEDIA_NEXT:
       case KEYCODE_MEDIA_SKIP_FORWARD:
         command =
             () -> sessionStub.seekToNextForControllerInfo(controllerInfo, UNKNOWN_SEQUENCE_NUMBER);
         break;
-      case KEYCODE_MEDIA_PREVIOUS: // Fall through.
+      case KEYCODE_MEDIA_PREVIOUS:
       case KEYCODE_MEDIA_SKIP_BACKWARD:
         command =
             () ->
@@ -1825,6 +1882,24 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
 
     @Override
+    public void onAudioSessionIdChanged(int audioSessionId) {
+      @Nullable MediaSessionImpl session = getSession();
+      if (session == null) {
+        return;
+      }
+      session.verifyApplicationThread();
+      @Nullable PlayerWrapper player = this.player.get();
+      if (player == null) {
+        return;
+      }
+      session.playerInfo = session.playerInfo.copyWithAudioSessionId(audioSessionId);
+      session.onPlayerInfoChangedHandler.sendPlayerInfoChangedMessage(
+          /* excludeTimeline= */ true, /* excludeTracks= */ true);
+      session.dispatchRemoteControllerTaskToLegacyStub(
+          (callback, seq) -> callback.onAudioSessionIdChanged(seq, audioSessionId));
+    }
+
+    @Override
     public void onAudioAttributesChanged(AudioAttributes attributes) {
       @Nullable MediaSessionImpl session = getSession();
       if (session == null) {
@@ -1991,6 +2066,21 @@ import org.checkerframework.checker.initialization.qual.Initialized;
     }
 
     @Override
+    public void onSurfaceSizeChanged(int width, int height) {
+      @Nullable MediaSessionImpl session = getSession();
+      if (session == null) {
+        return;
+      }
+      session.verifyApplicationThread();
+      @Nullable PlayerWrapper player = this.player.get();
+      if (player == null) {
+        return;
+      }
+      session.dispatchRemoteControllerTaskWithoutReturn(
+          (controller, seq) -> controller.onSurfaceSizeChanged(seq, width, height));
+    }
+
+    @Override
     public void onRenderedFirstFrame() {
       @Nullable MediaSessionImpl session = getSession();
       if (session == null) {
@@ -2125,5 +2215,41 @@ import org.checkerframework.checker.initialization.qual.Initialized;
         sendEmptyMessage(MSG_PLAYER_INFO_CHANGED);
       }
     }
+  }
+
+  private static final Supplier<Integer> mediaMetadataBitmapMaxSize =
+      Suppliers.memoize(MediaSessionImpl::getMediaMetadataBitmapMaxSize);
+
+  @SuppressWarnings("DiscouragedApi") // Using Resources.getIdentifier() is less efficient
+  private static int getMediaMetadataBitmapMaxSize() {
+    Resources res = Resources.getSystem();
+    int maxSize = res.getDisplayMetrics().widthPixels;
+    try {
+      int id = res.getIdentifier("config_mediaMetadataBitmapMaxSize", "dimen", "android");
+      maxSize = res.getDimensionPixelSize(id);
+    } catch (Resources.NotFoundException e) {
+      // do nothing
+    }
+    return maxSize;
+  }
+
+  /** Returns the maximum dimension of the bitmap (either width or height) that can be used */
+  public static int getBitmapDimensionLimit(Context context) {
+    int maxSize = mediaMetadataBitmapMaxSize.get();
+
+    // NotificationCompat will scale the bitmaps on API < 27
+    if (Build.VERSION.SDK_INT < 27) {
+      // Hard-code the value of compat_notification_large_icon_max_width and
+      // compat_notification_large_icon_max_width as 320dp because the resource IDs are not public
+      // in
+      // https://cs.android.com/android/platform/superproject/+/androidx-main:frameworks/support/core/core/src/main/res/values/dimens.xml
+      // and therefore cannot be used from here.
+      int notificationCompatMaxSize =
+          (int)
+              TypedValue.applyDimension(
+                  TypedValue.COMPLEX_UNIT_DIP, 320, context.getResources().getDisplayMetrics());
+      maxSize = max(maxSize, notificationCompatMaxSize);
+    }
+    return maxSize;
   }
 }

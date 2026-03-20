@@ -15,8 +15,9 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.os.Bundle;
@@ -122,10 +123,6 @@ public final class SessionCommand {
 
   /**
    * The extra bundle of a custom command. It will be {@link Bundle#EMPTY} for a predefined command.
-   *
-   * <p>Interoperability: This value is not used when the command is sent to a legacy {@code
-   * android.support.v4.media.session.MediaSessionCompat} or {@code
-   * android.support.v4.media.session.MediaControllerCompat}.
    */
   public final Bundle customExtras;
 
@@ -192,7 +189,7 @@ public final class SessionCommand {
       return new SessionCommand(commandCode);
     } else {
       String customAction = checkNotNull(bundle.getString(FIELD_CUSTOM_ACTION));
-      @Nullable Bundle customExtras = bundle.getBundle(FIELD_CUSTOM_EXTRAS);
+      @Nullable Bundle customExtras = convertToNullIfInvalid(bundle.getBundle(FIELD_CUSTOM_EXTRAS));
       return new SessionCommand(customAction, customExtras == null ? Bundle.EMPTY : customExtras);
     }
   }

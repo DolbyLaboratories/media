@@ -15,11 +15,13 @@
  */
 package androidx.media3.session;
 
+import static android.os.Build.VERSION.SDK_INT;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_ALBUM_TITLE;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_ARTIST;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_ARTWORK_URI;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_DESCRIPTION;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_EXTRAS;
+import static androidx.media3.test.session.common.CommonConstants.METADATA_MEDIA_URI;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_SUBTITLE;
 import static androidx.media3.test.session.common.CommonConstants.METADATA_TITLE;
 import static androidx.media3.test.session.common.CommonConstants.SUPPORT_APP_PACKAGE_NAME;
@@ -28,9 +30,11 @@ import static com.google.common.truth.Truth.assertWithMessage;
 import static org.junit.Assert.fail;
 
 import android.os.Bundle;
+import android.os.Parcel;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.session.MediaSessionCompat;
+import android.util.ArrayMap;
 import androidx.annotation.Nullable;
 import androidx.media.MediaBrowserServiceCompat.BrowserRoot;
 import androidx.media3.common.C;
@@ -49,8 +53,10 @@ import androidx.media3.test.session.common.TestUtils;
 import androidx.test.core.app.ApplicationProvider;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 
 /** Utilities for tests. */
 public final class MediaTestUtils {
@@ -100,14 +106,16 @@ public final class MediaTestUtils {
   }
 
   /** Create a media item with the mediaId for testing purpose. */
-  public static MediaItem createMediaItem(String mediaId) {
+  public static MediaItem createMediaItem(String mediaId, boolean buildWithUri) {
     MediaMetadata mediaMetadata =
         new MediaMetadata.Builder()
             .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
             .setIsBrowsable(false)
             .setIsPlayable(true)
             .build();
-    return new MediaItem.Builder().setMediaId(mediaId).setMediaMetadata(mediaMetadata).build();
+    MediaItem.Builder mediaItem =
+        new MediaItem.Builder().setMediaId(mediaId).setMediaMetadata(mediaMetadata);
+    return buildWithUri ? mediaItem.setUri(METADATA_MEDIA_URI).build() : mediaItem.build();
   }
 
   public static MediaItem createMediaItemWithArtworkData(String mediaId) {
@@ -128,10 +136,10 @@ public final class MediaTestUtils {
     return new MediaItem.Builder().setMediaId(mediaId).setMediaMetadata(mediaMetadata).build();
   }
 
-  public static ArrayList<MediaItem> createMediaItems(int size) {
+  public static ArrayList<MediaItem> createMediaItems(int size, boolean buildWithUri) {
     ArrayList<MediaItem> list = new ArrayList<>();
     for (int i = 0; i < size; i++) {
-      list.add(createMediaItem("mediaItem_" + (i + 1)));
+      list.add(createMediaItem("mediaItem_" + (i + 1), buildWithUri));
     }
     return list;
   }
@@ -144,10 +152,10 @@ public final class MediaTestUtils {
     return list;
   }
 
-  public static List<MediaItem> createMediaItems(String... mediaIds) {
+  public static List<MediaItem> createMediaItems(boolean buildWithUri, String... mediaIds) {
     List<MediaItem> list = new ArrayList<>();
     for (int i = 0; i < mediaIds.length; i++) {
-      list.add(createMediaItem(mediaIds[i]));
+      list.add(createMediaItem(mediaIds[i], buildWithUri));
     }
     return list;
   }
@@ -262,8 +270,8 @@ public final class MediaTestUtils {
     return list;
   }
 
-  public static Timeline createTimeline(int windowCount) {
-    return new PlaylistTimeline(createMediaItems(/* size= */ windowCount));
+  public static Timeline createTimeline(int windowCount, boolean buildWithUri) {
+    return new PlaylistTimeline(createMediaItems(/* size= */ windowCount, buildWithUri));
   }
 
   public static Timeline createTimeline(List<MediaItem> mediaItems) {
@@ -272,7 +280,7 @@ public final class MediaTestUtils {
 
   public static Timeline createTimelineWithPeriodSizes(int[] periodSizesPerWindow) {
     return new MultiplePeriodsPerWindowTimeline(
-        createMediaItems(/* size= */ periodSizesPerWindow.length),
+        createMediaItems(/* size= */ periodSizesPerWindow.length, /* buildWithUri= */ true),
         periodSizesPerWindow,
         /* defaultPeriodDurationMs= */ 10_000);
   }
@@ -280,7 +288,7 @@ public final class MediaTestUtils {
   public static Timeline createTimelineWithPeriodSizes(
       int[] periodSizesPerWindow, long defaultPeriodDuration) {
     return new MultiplePeriodsPerWindowTimeline(
-        createMediaItems(/* size= */ periodSizesPerWindow.length),
+        createMediaItems(/* size= */ periodSizesPerWindow.length, /* buildWithUri= */ true),
         periodSizesPerWindow,
         defaultPeriodDuration);
   }
@@ -377,6 +385,122 @@ public final class MediaTestUtils {
                   + actualItem.mediaId)
           .that(actualItem)
           .isEqualTo(expectedItem);
+    }
+  }
+
+  /**
+   * Creates an invalid {@link Bundle} instance.
+   *
+   * <p>Accessing this {@link Bundle} after reading it from a {@link android.os.Parcel} will throw
+   * an exception.
+   *
+   * <p>Using this method may permanently corrupt {@link Bundle} and {@link ArrayMap} instances for
+   * this process on API 28 or below. Call {@link #cleanPotentiallyCorruptedArrayMapCache()} as a
+   * clean up step after using this method in a test.
+   */
+  public static Bundle createInvalidBundle() {
+    Bundle invalid = null;
+    while (invalid == null) {
+      invalid = tryCreateInvalidBundle();
+    }
+    return invalid;
+  }
+
+  /**
+   * On API 28 or below, {@link ArrayMap} caches may be corrupted with no automatic clean-up and
+   * detection. Use this method to manually clean the caches to avoid unintended side effects.
+   *
+   * <p>This method should always be called as a clean up step after {@link #createInvalidBundle()}
+   * was used in a test.
+   */
+  public static void cleanPotentiallyCorruptedArrayMapCache() {
+    if (SDK_INT >= 29) {
+      // ArrayMap automatically detects and ignores invalid caches from API 29.
+      return;
+    }
+    try {
+      Class<?> arrayMapClass = ArrayMap.class;
+      setStaticField(arrayMapClass, "mBaseCache", null);
+      setStaticField(arrayMapClass, "mTwiceBaseCache", null);
+      setStaticField(arrayMapClass, "mBaseCacheSize", 0);
+      setStaticField(arrayMapClass, "mTwiceBaseCacheSize", 0);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(e); // Shouldn't happen, these fields exist on all versions
+    }
+  }
+
+  private static void setStaticField(Class<?> clazz, String fieldName, @Nullable Object value)
+      throws ReflectiveOperationException {
+    Field baseCacheField = clazz.getDeclaredField(fieldName);
+    baseCacheField.setAccessible(true);
+    baseCacheField.set(null, value);
+  }
+
+  private static Bundle tryCreateInvalidBundle() {
+    Bundle bundle = new Bundle();
+    CountDownLatch waitForThreadCreation = new CountDownLatch(2);
+    Thread thread1 =
+        new Thread(
+            () -> {
+              waitForThreadCreation.countDown();
+              try {
+                waitForThreadCreation.await();
+              } catch (InterruptedException e) {
+                // Ignore.
+              }
+              for (int i = 0; i < 10; i++) {
+                try {
+                  bundle.putInt("key" + i, 1);
+                } catch (RuntimeException e) {
+                  // Attempt was detected.
+                }
+              }
+            });
+    Thread thread2 =
+        new Thread(
+            () -> {
+              waitForThreadCreation.countDown();
+              try {
+                waitForThreadCreation.await();
+              } catch (InterruptedException e) {
+                // Ignore.
+              }
+              for (int i = 0; i < 10; i++) {
+                try {
+                  bundle.putInt("key" + i, 1);
+                } catch (RuntimeException e) {
+                  // Attempt was detected.
+                }
+              }
+            });
+    thread1.start();
+    thread2.start();
+    try {
+      thread1.join();
+      thread2.join();
+    } catch (InterruptedException e) {
+      // Ignore.
+    }
+    return isBundleInvalid(bundle) ? bundle : null;
+  }
+
+  private static boolean isBundleInvalid(Bundle bundle) {
+    Parcel parcel = Parcel.obtain();
+    try {
+      parcel.writeBundle(bundle);
+      parcel.setDataPosition(0);
+      Bundle restoredBundle = parcel.readBundle();
+      // Access restored Bundle to verify it triggers an exception.
+      try {
+        restoredBundle.isEmpty();
+        return false;
+      } catch (RuntimeException e) {
+        return true;
+      }
+    } catch (RuntimeException e) {
+      return false; // Likely an invalid Bundle, but it fails too early to be useful for testing.
+    } finally {
+      parcel.recycle();
     }
   }
 }

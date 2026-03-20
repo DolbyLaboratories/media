@@ -15,11 +15,11 @@
  */
 package androidx.media3.exoplayer;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotEmpty;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.text.TextUtils;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.ColorInfo;
@@ -85,7 +85,8 @@ public final class DecoderReuseEvaluation {
         DISCARD_REASON_AUDIO_CHANNEL_COUNT_CHANGED,
         DISCARD_REASON_AUDIO_SAMPLE_RATE_CHANGED,
         DISCARD_REASON_AUDIO_ENCODING_CHANGED,
-        DISCARD_REASON_AUDIO_BYPASS_POSSIBLE
+        DISCARD_REASON_AUDIO_BYPASS_POSSIBLE,
+        DISCARD_REASON_VIDEO_FRAME_RATE_CHANGED
       })
   public @interface DecoderDiscardReasons {}
 
@@ -137,8 +138,11 @@ public final class DecoderReuseEvaluation {
   /** The audio bypass mode is possible. */
   public static final int DISCARD_REASON_AUDIO_BYPASS_POSSIBLE = 1 << 15;
 
+  /** The video frame rate is changing. */
+  public static final int DISCARD_REASON_VIDEO_FRAME_RATE_CHANGED = 1 << 16;
+
   /** The codec is changing. */
-  public static final int DISCARD_REASON_CODEC_CHANGED = 1 << 16;
+  public static final int DISCARD_REASON_CODEC_CHANGED = 1 << 17;
 
   /** The name of the decoder. */
   public final String decoderName;
@@ -173,7 +177,8 @@ public final class DecoderReuseEvaluation {
       @DecoderReuseResult int result,
       @DecoderDiscardReasons int discardReasons) {
     checkArgument(result == REUSE_RESULT_NO || discardReasons == 0);
-    this.decoderName = checkNotEmpty(decoderName);
+    checkArgument(!TextUtils.isEmpty(decoderName));
+    this.decoderName = decoderName;
     this.oldFormat = checkNotNull(oldFormat);
     this.newFormat = checkNotNull(newFormat);
     this.result = result;

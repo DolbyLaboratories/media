@@ -15,7 +15,8 @@
  */
 package androidx.media3.common;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
@@ -24,6 +25,7 @@ import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.TextUtils;
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
@@ -78,6 +80,7 @@ public final class MediaMetadata {
     @Nullable private Integer releaseMonth;
     @Nullable private Integer releaseDay;
     @Nullable private CharSequence writer;
+    @Nullable private CharSequence author;
     @Nullable private CharSequence composer;
     @Nullable private CharSequence conductor;
     @Nullable private Integer discNumber;
@@ -120,6 +123,7 @@ public final class MediaMetadata {
       this.releaseMonth = mediaMetadata.releaseMonth;
       this.releaseDay = mediaMetadata.releaseDay;
       this.writer = mediaMetadata.writer;
+      this.author = mediaMetadata.author;
       this.composer = mediaMetadata.composer;
       this.conductor = mediaMetadata.conductor;
       this.discNumber = mediaMetadata.discNumber;
@@ -379,6 +383,14 @@ public final class MediaMetadata {
     @CanIgnoreReturnValue
     public Builder setWriter(@Nullable CharSequence writer) {
       this.writer = writer;
+      return this;
+    }
+
+    /** Sets the author. */
+    @CanIgnoreReturnValue
+    @UnstableApi
+    public Builder setAuthor(@Nullable CharSequence author) {
+      this.author = author;
       return this;
     }
 
@@ -1110,6 +1122,9 @@ public final class MediaMetadata {
   /** Optional writer. */
   @Nullable public final CharSequence writer;
 
+  /** Optional author. */
+  @UnstableApi @Nullable public final CharSequence author;
+
   /** Optional composer. */
   @Nullable public final CharSequence composer;
 
@@ -1193,6 +1208,7 @@ public final class MediaMetadata {
     this.releaseMonth = builder.releaseMonth;
     this.releaseDay = builder.releaseDay;
     this.writer = builder.writer;
+    this.author = builder.author;
     this.composer = builder.composer;
     this.conductor = builder.conductor;
     this.discNumber = builder.discNumber;
@@ -1221,13 +1237,13 @@ public final class MediaMetadata {
       return false;
     }
     MediaMetadata that = (MediaMetadata) obj;
-    return Objects.equals(title, that.title)
-        && Objects.equals(artist, that.artist)
-        && Objects.equals(albumTitle, that.albumTitle)
-        && Objects.equals(albumArtist, that.albumArtist)
-        && Objects.equals(displayTitle, that.displayTitle)
-        && Objects.equals(subtitle, that.subtitle)
-        && Objects.equals(description, that.description)
+    return TextUtils.equals(title, that.title)
+        && TextUtils.equals(artist, that.artist)
+        && TextUtils.equals(albumTitle, that.albumTitle)
+        && TextUtils.equals(albumArtist, that.albumArtist)
+        && TextUtils.equals(displayTitle, that.displayTitle)
+        && TextUtils.equals(subtitle, that.subtitle)
+        && TextUtils.equals(description, that.description)
         && Objects.equals(durationMs, that.durationMs)
         && Objects.equals(userRating, that.userRating)
         && Objects.equals(overallRating, that.overallRating)
@@ -1245,14 +1261,14 @@ public final class MediaMetadata {
         && Objects.equals(releaseYear, that.releaseYear)
         && Objects.equals(releaseMonth, that.releaseMonth)
         && Objects.equals(releaseDay, that.releaseDay)
-        && Objects.equals(writer, that.writer)
-        && Objects.equals(composer, that.composer)
-        && Objects.equals(conductor, that.conductor)
+        && TextUtils.equals(writer, that.writer)
+        && TextUtils.equals(composer, that.composer)
+        && TextUtils.equals(conductor, that.conductor)
         && Objects.equals(discNumber, that.discNumber)
         && Objects.equals(totalDiscCount, that.totalDiscCount)
-        && Objects.equals(genre, that.genre)
-        && Objects.equals(compilation, that.compilation)
-        && Objects.equals(station, that.station)
+        && TextUtils.equals(genre, that.genre)
+        && TextUtils.equals(compilation, that.compilation)
+        && TextUtils.equals(station, that.station)
         && Objects.equals(mediaType, that.mediaType)
         && Objects.equals(supportedCommands, that.supportedCommands)
         && ((extras == null) == (that.extras == null));
@@ -1473,7 +1489,7 @@ public final class MediaMetadata {
         .setGenre(bundle.getCharSequence(FIELD_GENRE))
         .setCompilation(bundle.getCharSequence(FIELD_COMPILATION))
         .setStation(bundle.getCharSequence(FIELD_STATION))
-        .setExtras(bundle.getBundle(FIELD_EXTRAS));
+        .setExtras(convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS)));
 
     if (bundle.containsKey(FIELD_USER_RATING)) {
       @Nullable Bundle fieldBundle = bundle.getBundle(FIELD_USER_RATING);

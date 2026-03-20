@@ -30,6 +30,7 @@ import androidx.media3.common.C;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.exoplayer.audio.AudioOutput;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
@@ -111,7 +112,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
   private boolean enableDecoderFallback;
   private MediaCodecSelector mediaCodecSelector;
   private boolean enableFloatOutput;
-  private boolean enableAudioTrackPlaybackParams;
+  private boolean enableAudioOutputPlaybackParameters;
   private boolean enableMediaCodecVideoRendererPrewarming;
   private boolean parseAv1SampleDependencies;
   private long lateThresholdToDropDecoderInputUs;
@@ -235,27 +236,37 @@ public class DefaultRenderersFactory implements RenderersFactory {
   }
 
   /**
-   * Sets whether to enable setting playback speed using {@link
-   * android.media.AudioTrack#setPlaybackParams(PlaybackParams)}, which is supported from API level
-   * 23, rather than using application-level audio speed adjustment. This setting has no effect on
-   * builds before API level 23 (application-level speed adjustment will be used in all cases).
-   *
-   * <p>If enabled and supported, new playback speed settings will take effect more quickly because
-   * they are applied at the audio mixer, rather than at the point of writing data to the track.
-   *
-   * <p>When using this mode, the maximum supported playback speed is limited by the size of the
-   * audio track's buffer. If the requested speed is not supported the player's event listener will
-   * be notified twice on setting playback speed, once with the requested speed, then again with the
-   * old playback speed reflecting the fact that the requested speed was not supported.
-   *
-   * @param enableAudioTrackPlaybackParams Whether to enable setting playback speed using {@link
-   *     android.media.AudioTrack#setPlaybackParams(PlaybackParams)}.
-   * @return This factory, for convenience.
+   * @deprecated Use {@link #setEnableAudioOutputPlaybackParameters(boolean)} instead.
    */
+  @Deprecated
   @CanIgnoreReturnValue
   public final DefaultRenderersFactory setEnableAudioTrackPlaybackParams(
       boolean enableAudioTrackPlaybackParams) {
-    this.enableAudioTrackPlaybackParams = enableAudioTrackPlaybackParams;
+    return setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams);
+  }
+
+  /**
+   * Sets whether to enable setting playback speed via {@link AudioOutput}, using {@link
+   * android.media.AudioTrack#setPlaybackParams(PlaybackParams)} by default, rather than using
+   * application-level audio speed adjustment.
+   *
+   * <p>If enabled and supported, new playback speed settings will take effect more quickly because
+   * they are applied at the audio mixer, rather than at the point of writing data to the output.
+   * However, the setting is more device-dependent, less reliable and may offer fewer available
+   * speeds.
+   *
+   * <p>If the requested speed is not supported the player's event listener will be notified twice
+   * on setting playback speed, once with the requested speed, then again with the old playback
+   * speed reflecting the fact that the requested speed was not supported.
+   *
+   * @param enableAudioOutputPlaybackParameters Whether to enable setting playback speed via {@link
+   *     AudioOutput}.
+   * @return This factory, for convenience.
+   */
+  @CanIgnoreReturnValue
+  public final DefaultRenderersFactory setEnableAudioOutputPlaybackParameters(
+      boolean enableAudioOutputPlaybackParameters) {
+    this.enableAudioOutputPlaybackParameters = enableAudioOutputPlaybackParameters;
     return this;
   }
 
@@ -377,7 +388,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
         renderersList);
     @Nullable
     AudioSink audioSink =
-        buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams);
+        buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParameters);
     if (audioSink != null) {
       buildAudioRenderers(
           context,
@@ -488,7 +499,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
 
     try {
       // LINT.IfChange
-      Class<?> clazz = Class.forName("androidx.media3.decoder.av1.Libgav1VideoRenderer");
+      Class<?> clazz = Class.forName("androidx.media3.decoder.av1.Libdav1dVideoRenderer");
       // Full class names used for media3 constructor args so the LINT rule triggers if any of them
       // move.
       @SuppressWarnings("UnnecessarilyFullyQualified")
@@ -507,7 +518,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
                   eventListener,
                   MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY);
       out.add(extensionRendererIndex++, renderer);
-      Log.i(TAG, "Loaded Libgav1VideoRenderer.");
+      Log.i(TAG, "Loaded Libdav1dVideoRenderer.");
     } catch (ClassNotFoundException e) {
       // Expected if the app was built without the extension.
     } catch (Exception e) {
@@ -682,7 +693,6 @@ public class DefaultRenderersFactory implements RenderersFactory {
     }
 
     try {
-      // Full class names used for constructor args so the LINT rule triggers if any of them move.
       // LINT.IfChange
       Class<?> clazz = Class.forName("androidx.media3.decoder.iamf.LibiamfAudioRenderer");
       // Full class names used for media3 constructor args so the LINT rule triggers if any of them
@@ -707,13 +717,17 @@ public class DefaultRenderersFactory implements RenderersFactory {
     }
 
     try {
-      // Full class names used for constructor args so the LINT rule triggers if any of them move.
+      // LINT.IfChange
       Class<?> clazz = Class.forName("androidx.media3.decoder.mpegh.MpeghAudioRenderer");
+      // Full class names used for media3 constructor args so the LINT rule triggers if any of them
+      // move.
+      @SuppressWarnings("UnnecessarilyFullyQualified")
       Constructor<?> constructor =
           clazz.getConstructor(
               Handler.class,
               androidx.media3.exoplayer.audio.AudioRendererEventListener.class,
               androidx.media3.exoplayer.audio.AudioSink.class);
+      // LINT.ThenChange(../../../../../../proguard-rules.txt)
       Renderer renderer =
           (Renderer) constructor.newInstance(eventHandler, eventListener, audioSink);
       out.add(extensionRendererIndex++, renderer);
@@ -817,18 +831,20 @@ public class DefaultRenderersFactory implements RenderersFactory {
    *
    * @param context The {@link Context} associated with the player.
    * @param enableFloatOutput Whether to enable use of floating point audio output, if available.
-   * @param enableAudioTrackPlaybackParams Whether to enable setting playback speed using {@link
-   *     android.media.AudioTrack#setPlaybackParams(PlaybackParams)}, if supported.
+   * @param enableAudioOutputPlaybackParams Whether to enable setting playback speed via the {@link
+   *     AudioOutput}, using {@link android.media.AudioTrack#setPlaybackParams(PlaybackParams)} by
+   *     default, if supported. The {@link AudioOutput} speed adjustment is lower latency, but
+   *     device-dependent, less reliable or may offer fewer available speeds.
    * @return The {@link AudioSink} to which the audio renderers will output. May be {@code null} if
    *     no audio renderers are required. If {@code null} is returned then {@link
    *     #buildAudioRenderers} will not be called.
    */
   @Nullable
   protected AudioSink buildAudioSink(
-      Context context, boolean enableFloatOutput, boolean enableAudioTrackPlaybackParams) {
+      Context context, boolean enableFloatOutput, boolean enableAudioOutputPlaybackParams) {
     return new DefaultAudioSink.Builder(context)
         .setEnableFloatOutput(enableFloatOutput)
-        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+        .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
         .build();
   }
 

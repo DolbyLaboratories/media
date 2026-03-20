@@ -15,12 +15,12 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.session.LibraryResult.RESULT_SUCCESS;
 import static androidx.media3.session.SessionError.ERROR_INVALID_STATE;
 import static androidx.media3.session.SessionError.ERROR_NOT_SUPPORTED;
 import static androidx.media3.session.SessionError.ERROR_UNKNOWN;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
@@ -96,7 +96,8 @@ import java.util.concurrent.Future;
         sessionExtras,
         bitmapLoader,
         playIfSuppressed,
-        isPeriodicPositionUpdateEnabled);
+        isPeriodicPositionUpdateEnabled,
+        /* useLegacySurfaceHandling= */ false);
     this.instance = instance;
     this.callback = callback;
     this.libraryErrorReplicationMode = libraryErrorReplicationMode;
@@ -435,7 +436,7 @@ import java.util.concurrent.Future;
             ? checkNotNull(getMediaNotificationControllerInfo())
             : controller;
     ListenableFuture<MediaSession.MediaItemsWithStartPosition> future =
-        callback.onPlaybackResumption(instance, controller);
+        callback.onPlaybackResumption(instance, controller, /* isForPlayback= */ false);
     Futures.addCallback(
         future,
         new FutureCallback<MediaSession.MediaItemsWithStartPosition>() {

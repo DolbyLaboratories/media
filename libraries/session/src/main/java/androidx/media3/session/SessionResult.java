@@ -15,7 +15,8 @@
  */
 package androidx.media3.session;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.annotation.SuppressLint;
@@ -259,7 +260,7 @@ public final class SessionResult {
   public static SessionResult fromBundle(Bundle bundle) {
     int resultCode =
         bundle.getInt(FIELD_RESULT_CODE, /* defaultValue= */ SessionError.ERROR_UNKNOWN);
-    @Nullable Bundle extras = bundle.getBundle(FIELD_EXTRAS);
+    @Nullable Bundle extras = convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS));
     long completionTimeMs =
         bundle.getLong(FIELD_COMPLETION_TIME_MS, /* defaultValue= */ SystemClock.elapsedRealtime());
     @Nullable SessionError sessionError = null;

@@ -15,6 +15,10 @@
  */
 package androidx.media3.exoplayer.source;
 
+import static androidx.media3.common.util.Util.durationUsToSampleCount;
+import static androidx.media3.common.util.Util.sampleCountToDurationUs;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.min;
 
 import android.net.Uri;
@@ -27,7 +31,6 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackGroup;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.NullableType;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -82,7 +85,7 @@ public final class SilenceMediaSource extends BaseMediaSource {
      * @throws IllegalStateException if the duration is a non-positive value.
      */
     public SilenceMediaSource createMediaSource() {
-      Assertions.checkState(durationUs > 0);
+      checkState(durationUs > 0);
       return new SilenceMediaSource(durationUs, MEDIA_ITEM.buildUpon().setTag(tag).build());
     }
   }
@@ -130,7 +133,7 @@ public final class SilenceMediaSource extends BaseMediaSource {
    * @param mediaItem The media item associated with this media source.
    */
   private SilenceMediaSource(long durationUs, MediaItem mediaItem) {
-    Assertions.checkArgument(durationUs >= 0);
+    checkArgument(durationUs >= 0);
     this.durationUs = durationUs;
     this.mediaItem = mediaItem;
   }
@@ -284,7 +287,6 @@ public final class SilenceMediaSource extends BaseMediaSource {
 
     public SilenceSampleStream(long durationUs) {
       durationBytes = getAudioByteCount(durationUs);
-      seekTo(0);
     }
 
     public void seekTo(long positionUs) {
@@ -336,12 +338,12 @@ public final class SilenceMediaSource extends BaseMediaSource {
   }
 
   private static long getAudioByteCount(long durationUs) {
-    long audioSampleCount = durationUs * SAMPLE_RATE_HZ / C.MICROS_PER_SECOND;
+    long audioSampleCount = durationUsToSampleCount(durationUs, SAMPLE_RATE_HZ);
     return Util.getPcmFrameSize(PCM_ENCODING, CHANNEL_COUNT) * audioSampleCount;
   }
 
   private static long getAudioPositionUs(long bytes) {
     long audioSampleCount = bytes / Util.getPcmFrameSize(PCM_ENCODING, CHANNEL_COUNT);
-    return audioSampleCount * C.MICROS_PER_SECOND / SAMPLE_RATE_HZ;
+    return sampleCountToDurationUs(audioSampleCount, SAMPLE_RATE_HZ);
   }
 }

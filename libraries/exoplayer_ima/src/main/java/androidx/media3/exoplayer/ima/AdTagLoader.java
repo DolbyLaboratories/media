@@ -16,19 +16,20 @@
 package androidx.media3.exoplayer.ima;
 
 import static androidx.media3.common.Player.COMMAND_GET_VOLUME;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.common.util.Util.msToUs;
 import static androidx.media3.exoplayer.ima.ImaUtil.BITRATE_UNSET;
 import static androidx.media3.exoplayer.ima.ImaUtil.TIMEOUT_UNSET;
 import static androidx.media3.exoplayer.ima.ImaUtil.getAdGroupTimesUsForCuePoints;
 import static androidx.media3.exoplayer.ima.ImaUtil.getImaLooper;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.max;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.content.Context;
 import android.os.Handler;
 import android.os.SystemClock;
+import android.text.TextUtils;
 import android.view.ViewGroup;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
@@ -46,6 +47,7 @@ import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSpec;
 import androidx.media3.exoplayer.source.ads.AdsLoader.EventListener;
 import androidx.media3.exoplayer.source.ads.AdsMediaSource.AdLoadException;
+import com.google.ads.interactivemedia.v3.api.Ad;
 import com.google.ads.interactivemedia.v3.api.AdDisplayContainer;
 import com.google.ads.interactivemedia.v3.api.AdError;
 import com.google.ads.interactivemedia.v3.api.AdErrorEvent;
@@ -73,6 +75,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -178,8 +181,8 @@ import java.util.Objects;
   /** Whether IMA has been notified that playback of content has finished. */
   private boolean sentContentComplete;
 
-  /** The MIME type of the ad pod that is next requested via an {@link AdEventType#LOADED} event. */
-  @Nullable private String pendingAdMimeType;
+  /** Mimetypes by AdInfo. Provided in the {@link AdEventType#LOADED} event */
+  private final Map<AdInfo, String> mimeTypeByAdInfo;
 
   // Fields tracking the player/loader state.
 
@@ -251,6 +254,7 @@ import java.util.Objects;
     }
     imaSdkSettings.setPlayerType(IMA_SDK_SETTINGS_PLAYER_TYPE);
     imaSdkSettings.setPlayerVersion(IMA_SDK_SETTINGS_PLAYER_VERSION);
+    mimeTypeByAdInfo = new HashMap<>();
     this.supportedMimeTypes = supportedMimeTypes;
     this.adTagDataSpec = adTagDataSpec;
     this.adsId = adsId;
@@ -391,7 +395,21 @@ import java.util.Objects;
   /** Deactivates playback. */
   public void deactivate() {
     Player player = checkNotNull(this.player);
-    if (!AdPlaybackState.NONE.equals(adPlaybackState) && imaPausedContent) {
+    // Post deactivation behind any already queued Player.Listener events to ensure that
+    // any pending events are processed before the listener is removed and the ads manager paused.
+    handler.post(() -> deactivateInternal(player));
+  }
+
+  /**
+   * Deactivates playback internally, after the Listener.onEvents() cycle completes so the complete
+   * state change picture is clear. For example, if an error caused the deactivation, the error
+   * callback can be handled first.
+   */
+  private void deactivateInternal(Player player) {
+    if (!adPlaybackState.equals(AdPlaybackState.NONE)
+        && imaPausedContent
+        && player.getPlayerError() == null) {
+      // Only need to pause and store resume position if not in error state.
       if (adsManager != null) {
         adsManager.pause();
       }
@@ -402,9 +420,7 @@ import java.util.Objects;
     lastVolumePercent = getPlayerVolumePercent();
     lastAdProgress = getAdVideoProgressUpdate();
     lastContentProgress = getContentVideoProgressUpdate();
-
-    // Post release of listener so that we can report any already pending errors via onPlayerError.
-    handler.post(() -> player.removeListener(this));
+    player.removeListener(this);
     this.player = null;
   }
 
@@ -539,7 +555,7 @@ import java.util.Objects;
 
   @Override
   public void onPlayerError(PlaybackException error) {
-    if (imaAdState != IMA_AD_STATE_NONE) {
+    if (imaAdState != IMA_AD_STATE_NONE && checkNotNull(player).isPlayingAd()) {
       AdMediaInfo adMediaInfo = checkNotNull(imaAdMediaInfo);
       for (int i = 0; i < adCallbacks.size(); i++) {
         adCallbacks.get(i).onError(adMediaInfo);
@@ -777,7 +793,14 @@ import java.util.Objects;
         Log.i(TAG, message);
         break;
       case LOADED:
-        pendingAdMimeType = adEvent.getAd().getContentType();
+        @Nullable Ad ad = adEvent.getAd();
+        if (ad != null) {
+          String adMimeType = ad.getContentType();
+          if (!TextUtils.isEmpty(adMimeType)) {
+            // TODO: b/437870080 - Remove this once the SDK provides a mime type in the AdPodInfo.
+            setAdMimeType(ad.getAdPodInfo(), adMimeType);
+          }
+        }
         break;
       default:
         break;
@@ -985,10 +1008,11 @@ import java.util.Objects;
     }
 
     MediaItem.Builder adMediaItem = new MediaItem.Builder().setUri(adMediaInfo.getUrl());
-    if (pendingAdMimeType != null) {
-      adMediaItem.setMimeType(pendingAdMimeType);
-      pendingAdMimeType = null;
+    String adMimeType = mimeTypeByAdInfo.get(adInfo);
+    if (adMimeType != null) {
+      adMediaItem.setMimeType(adMimeType);
     }
+
     adPlaybackState =
         adPlaybackState.withAvailableAdMediaItem(
             adInfo.adGroupIndex, adInfo.adIndexInAdGroup, adMediaItem.build());
@@ -1258,6 +1282,13 @@ import java.util.Objects;
     }
   }
 
+  private void setAdMimeType(AdPodInfo adPodInfo, String mimeType) {
+    int adGroupIndex = getAdGroupIndexForAdPod(adPodInfo);
+    int adIndexInAdGroup = adPodInfo.getAdPosition() - 1;
+    AdInfo adInfo = new AdInfo(adGroupIndex, adIndexInAdGroup);
+    mimeTypeByAdInfo.put(adInfo, mimeType);
+  }
+
   private int getAdGroupIndexForAdPod(AdPodInfo adPodInfo) {
     if (adPodInfo.getPodIndex() == -1) {
       // This is a postroll ad.
@@ -1392,7 +1423,14 @@ import java.util.Objects;
 
     @Override
     public void onAdsManagerLoaded(AdsManagerLoadedEvent adsManagerLoadedEvent) {
-      AdsManager adsManager = adsManagerLoadedEvent.getAdsManager();
+      @Nullable AdsManager adsManager = adsManagerLoadedEvent.getAdsManager();
+      if (adsManager == null) {
+        // The same AdsLoader may be used for both Client-side ads and SSAI ads at the same time.
+        // In this scenario, it may emit an `AdsManagerLoadedEvent` which should be handled by the
+        // `ImaServerSideAdInsertionMediaSource` instead of the `AdTagLoader`. It's safe to ignore
+        // that event.
+        return;
+      }
       if (!Objects.equals(pendingAdRequestContext, adsManagerLoadedEvent.getUserRequestContext())) {
         adsManager.destroy();
         return;

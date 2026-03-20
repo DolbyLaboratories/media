@@ -20,6 +20,7 @@ import static androidx.media3.common.MimeTypes.AUDIO_AC4;
 import static androidx.media3.common.MimeTypes.AUDIO_E_AC3;
 import static androidx.media3.common.MimeTypes.AUDIO_E_AC3_JOC;
 import static androidx.media3.common.MimeTypes.VIDEO_AV1;
+import static androidx.media3.common.MimeTypes.VIDEO_DOLBY_VISION;
 import static androidx.media3.common.MimeTypes.VIDEO_H264;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_AUDIO_CHANNEL_COUNT_CHANGED;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_INITIALIZATION_DATA_CHANGED;
@@ -33,14 +34,21 @@ import static androidx.media3.exoplayer.DecoderReuseEvaluation.REUSE_RESULT_YES_
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.REUSE_RESULT_YES_WITH_RECONFIGURATION;
 import static com.google.common.truth.Truth.assertThat;
 
+import android.content.Context;
+import android.content.pm.PackageManager;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
+import androidx.media3.common.util.MediaFormatUtil;
 import androidx.media3.exoplayer.DecoderReuseEvaluation;
+import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.robolectric.Shadows;
+import org.robolectric.shadows.MediaCodecInfoBuilder;
+import org.robolectric.shadows.ShadowPackageManager;
 
 /** Unit tests for {@link MediaCodecInfo}. */
 @RunWith(AndroidJUnit4.class)
@@ -96,9 +104,26 @@ public final class MediaCodecInfoTest {
   private static final Format FORMAT_AC4 =
       new Format.Builder()
           .setSampleMimeType(AUDIO_AC4)
+          .setCodecs("ac-4.02.01.01")
           .setChannelCount(21)
           .setSampleRate(48000)
           .setAverageBitrate(5000)
+          .build();
+
+  private static final Format FORMAT_DOLBY_VISION_PROFILE_DVHEST =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_DOLBY_VISION)
+          .setCodecs("dvhe.08.03")
+          .setWidth(1920)
+          .setHeight(1080)
+          .build();
+
+  private static final Format FORMAT_DOLBY_VISION_PROFILE_DVHESTN =
+      new Format.Builder()
+          .setSampleMimeType(VIDEO_DOLBY_VISION)
+          .setCodecs("dvhe.05.03")
+          .setWidth(1920)
+          .setHeight(1080)
           .build();
 
   @Test
@@ -346,60 +371,146 @@ public final class MediaCodecInfoTest {
   }
 
   @Test
-  public void canReuseCodec_eac3_returnsYesWithoutReconfiguration() {
-    MediaCodecInfo codecInfo = buildEac3CodecInfo();
+  public void canReuseCodec_dolbyVisionWithDifferentCodecs_returnsNo() {
+    MediaCodecInfo codecInfo = buildDolbyVisionCodecInfo();
 
-    Format variantFormat =
-        FORMAT_EAC3
-            .buildUpon()
-            .setInitializationData(ImmutableList.of(new byte[] {0}))
-            .build();
-    assertThat(codecInfo.canReuseCodec(FORMAT_EAC3, variantFormat))
+    assertThat(
+            codecInfo.canReuseCodec(
+                FORMAT_DOLBY_VISION_PROFILE_DVHEST, FORMAT_DOLBY_VISION_PROFILE_DVHESTN))
+        .isEqualTo(
+            new DecoderReuseEvaluation(
+                codecInfo.name,
+                FORMAT_DOLBY_VISION_PROFILE_DVHEST,
+                FORMAT_DOLBY_VISION_PROFILE_DVHESTN,
+                REUSE_RESULT_NO,
+                /* discardReasons= */ DISCARD_REASON_WORKAROUND));
+  }
+
+  @Test
+  public void canReuseCodec_eac3_returnsYesWithoutReconfiguration() {
+    MediaCodecInfo codecInfo =
+        new MediaCodecInfo(
+            "eac3joc",
+            AUDIO_E_AC3,
+            AUDIO_E_AC3,
+            /* capabilities= */ null,
+            /* hardwareAccelerated= */ false,
+            /* softwareOnly= */ true,
+            /* vendor= */ true,
+            /* adaptive= */ false,
+            /* tunneling= */ false,
+            /* secure= */ false,
+            /* detachedSurfaceSupported= */ false);
+
+    assertThat(codecInfo.canReuseCodec(FORMAT_EAC3, FORMAT_EAC3))
         .isEqualTo(
             new DecoderReuseEvaluation(
                 codecInfo.name,
                 FORMAT_EAC3,
-                variantFormat,
+                FORMAT_EAC3,
                 DecoderReuseEvaluation.REUSE_RESULT_YES_WITHOUT_RECONFIGURATION,
                 /* discardReasons= */ 0));
   }
 
   @Test
   public void canReuseCodec_eac3joc_returnsYesWithoutReconfiguration() {
-    MediaCodecInfo codecInfo = buildEac3JocCodecInfo();
+    MediaCodecInfo codecInfo =
+        new MediaCodecInfo(
+            "eac3joc",
+            AUDIO_E_AC3_JOC,
+            AUDIO_E_AC3_JOC,
+            /* capabilities= */ null,
+            /* hardwareAccelerated= */ false,
+            /* softwareOnly= */ true,
+            /* vendor= */ true,
+            /* adaptive= */ false,
+            /* tunneling= */ false,
+            /* secure= */ false,
+            /* detachedSurfaceSupported= */ false);
 
-    Format variantFormat =
-        FORMAT_EAC3JOC
-            .buildUpon()
-            .setInitializationData(ImmutableList.of(new byte[] {0}))
-            .build();
-    assertThat(codecInfo.canReuseCodec(FORMAT_EAC3JOC, variantFormat))
+    assertThat(codecInfo.canReuseCodec(FORMAT_EAC3JOC, FORMAT_EAC3JOC))
         .isEqualTo(
             new DecoderReuseEvaluation(
                 codecInfo.name,
                 FORMAT_EAC3JOC,
-                variantFormat,
+                FORMAT_EAC3JOC,
                 DecoderReuseEvaluation.REUSE_RESULT_YES_WITHOUT_RECONFIGURATION,
                 /* discardReasons= */ 0));
   }
 
   @Test
   public void canReuseCodec_ac4_returnsYesWithoutReconfiguration() {
-    MediaCodecInfo codecInfo = buildAc4CodecInfo();
+    MediaCodecInfo codecInfo = buildAc4CodecInfo(FORMAT_AC4);
 
-    Format variantFormat =
-        FORMAT_AC4
-            .buildUpon()
-            .setInitializationData(ImmutableList.of(new byte[] {0}))
-            .build();
-    assertThat(codecInfo.canReuseCodec(FORMAT_AC4, variantFormat))
+    assertThat(codecInfo.canReuseCodec(FORMAT_AC4, FORMAT_AC4))
         .isEqualTo(
             new DecoderReuseEvaluation(
                 codecInfo.name,
                 FORMAT_AC4,
-                variantFormat,
+                FORMAT_AC4,
                 DecoderReuseEvaluation.REUSE_RESULT_YES_WITHOUT_RECONFIGURATION,
                 /* discardReasons= */ 0));
+  }
+
+  @Test
+  public void canReuseCodec_ac4WithDifferentCodecs_returnsYesWithFlush() {
+    MediaCodecInfo codecInfo = buildAc4CodecInfo(FORMAT_AC4);
+
+    Format ac4VariantFormat = FORMAT_AC4.buildUpon().setCodecs("ac-4.02.01.03").build();
+    assertThat(codecInfo.canReuseCodec(FORMAT_AC4, ac4VariantFormat))
+        .isEqualTo(
+            new DecoderReuseEvaluation(
+                codecInfo.name,
+                FORMAT_AC4,
+                ac4VariantFormat,
+                REUSE_RESULT_YES_WITH_FLUSH,
+                /* discardReasons= */ 0));
+  }
+
+  @Test
+  public void isFormatSupported_ac4Profile00InAutomotiveContext_returnsFalse() throws Exception {
+    Context context = ApplicationProvider.getApplicationContext();
+    ShadowPackageManager shadowPackageManager = Shadows.shadowOf(context.getPackageManager());
+
+    Format formatAc4Profile00 =
+        new Format.Builder()
+            .setSampleMimeType(AUDIO_AC4)
+            .setCodecs("ac-4.00.00.01") // AC4Profile00
+            .setChannelCount(2)
+            .setSampleRate(48000)
+            .build();
+    MediaCodecInfo codecInfo = buildAc4CodecInfo(formatAc4Profile00);
+
+    // Test non-Automotive case (FEATURE_AUTOMOTIVE is false)
+    shadowPackageManager.setSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, false);
+    assertThat(codecInfo.isFormatSupported(context, formatAc4Profile00)).isTrue();
+
+    // Test Automotive case (FEATURE_AUTOMOTIVE is true)
+    shadowPackageManager.setSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, true);
+    assertThat(codecInfo.isFormatSupported(context, formatAc4Profile00)).isFalse();
+  }
+
+  @Test
+  public void isFormatSupported_ac4Profile21InAutomotiveContext_returnsTrue() throws Exception {
+    Context context = ApplicationProvider.getApplicationContext();
+    ShadowPackageManager shadowPackageManager = Shadows.shadowOf(context.getPackageManager());
+
+    Format formatAc4Profile21 =
+        new Format.Builder()
+            .setSampleMimeType(AUDIO_AC4)
+            .setCodecs("ac-4.21.01.01") // AC4Profile21
+            .setChannelCount(2)
+            .setSampleRate(48000)
+            .build();
+    MediaCodecInfo codecInfo = buildAc4CodecInfo(formatAc4Profile21);
+
+    // Test non-Automotive case (FEATURE_AUTOMOTIVE is false)
+    shadowPackageManager.setSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, false);
+    assertThat(codecInfo.isFormatSupported(context, formatAc4Profile21)).isTrue();
+
+    // Test Automotive case (FEATURE_AUTOMOTIVE is true)
+    shadowPackageManager.setSystemFeature(PackageManager.FEATURE_AUTOMOTIVE, true);
+    assertThat(codecInfo.isFormatSupported(context, formatAc4Profile21)).isTrue();
   }
 
   private static MediaCodecInfo buildH264CodecInfo(boolean adaptive) {
@@ -412,6 +523,21 @@ public final class MediaCodecInfoTest {
         /* softwareOnly= */ false,
         /* vendor= */ true,
         adaptive,
+        /* tunneling= */ false,
+        /* secure= */ false,
+        /* detachedSurfaceSupported= */ true);
+  }
+
+  private static MediaCodecInfo buildDolbyVisionCodecInfo() {
+    return new MediaCodecInfo(
+        "dolbyvision",
+        VIDEO_DOLBY_VISION,
+        VIDEO_DOLBY_VISION,
+        /* capabilities= */ null,
+        /* hardwareAccelerated= */ true,
+        /* softwareOnly= */ false,
+        /* vendor= */ true,
+        /* adaptive= */ true,
         /* tunneling= */ false,
         /* secure= */ false,
         /* detachedSurfaceSupported= */ true);
@@ -432,42 +558,18 @@ public final class MediaCodecInfoTest {
         /* detachedSurfaceSupported= */ false);
   }
 
-  private static MediaCodecInfo buildEac3CodecInfo() {
-    return new MediaCodecInfo(
-        "eac3joc",
-        AUDIO_E_AC3,
-        AUDIO_E_AC3,
-        /* capabilities= */ null,
-        /* hardwareAccelerated= */ false,
-        /* softwareOnly= */ true,
-        /* vendor= */ true,
-        /* adaptive= */ false,
-        /* tunneling= */ false,
-        /* secure= */ false,
-        /* detachedSurfaceSupported= */ false);
-  }
+  private static MediaCodecInfo buildAc4CodecInfo(Format ac4Format) {
+    @SuppressWarnings("UnnecessarilyFullyQualified") // Unnecessary to import CodecCapabilities.
+    android.media.MediaCodecInfo.CodecCapabilities capabilities =
+        MediaCodecInfoBuilder.CodecCapabilitiesBuilder.newBuilder()
+            .setMediaFormat(MediaFormatUtil.createMediaFormatFromFormat(ac4Format))
+            .build();
 
-  private static MediaCodecInfo buildEac3JocCodecInfo() {
-    return new MediaCodecInfo(
-        "eac3joc",
-        AUDIO_E_AC3_JOC,
-        AUDIO_E_AC3_JOC,
-        /* capabilities= */ null,
-        /* hardwareAccelerated= */ false,
-        /* softwareOnly= */ true,
-        /* vendor= */ true,
-        /* adaptive= */ false,
-        /* tunneling= */ false,
-        /* secure= */ false,
-        /* detachedSurfaceSupported= */ false);
-  }
-
-  private static MediaCodecInfo buildAc4CodecInfo() {
     return new MediaCodecInfo(
         "ac4",
         AUDIO_AC4,
         AUDIO_AC4,
-        /* capabilities= */ null,
+        /* capabilities= */ capabilities,
         /* hardwareAccelerated= */ false,
         /* softwareOnly= */ true,
         /* vendor= */ true,

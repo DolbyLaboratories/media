@@ -15,18 +15,18 @@
  */
 package androidx.media3.common;
 
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
 import static androidx.media3.common.util.Util.msToUs;
 import static androidx.media3.common.util.Util.usToMs;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.net.Uri;
 import android.os.Bundle;
 import androidx.annotation.IntRange;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.BundleCollectionUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -1885,7 +1885,7 @@ public final class MediaItem {
       @UnstableApi
       @CanIgnoreReturnValue
       public Builder setStartPositionUs(@IntRange(from = 0) long startPositionUs) {
-        Assertions.checkArgument(startPositionUs >= 0);
+        checkArgument(startPositionUs >= 0);
         this.startPositionUs = startPositionUs;
         return this;
       }
@@ -1908,7 +1908,7 @@ public final class MediaItem {
       @UnstableApi
       @CanIgnoreReturnValue
       public Builder setEndPositionUs(long endPositionUs) {
-        Assertions.checkArgument(endPositionUs == C.TIME_END_OF_SOURCE || endPositionUs >= 0);
+        checkArgument(endPositionUs == C.TIME_END_OF_SOURCE || endPositionUs >= 0);
         this.endPositionUs = endPositionUs;
         return this;
       }
@@ -2286,7 +2286,7 @@ public final class MediaItem {
       return new RequestMetadata.Builder()
           .setMediaUri(bundle.getParcelable(FIELD_MEDIA_URI))
           .setSearchQuery(bundle.getString(FIELD_SEARCH_QUERY))
-          .setExtras(bundle.getBundle(FIELD_EXTRAS))
+          .setExtras(convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS)))
           .build();
     }
   }

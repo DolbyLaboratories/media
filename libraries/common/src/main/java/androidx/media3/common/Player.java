@@ -15,6 +15,8 @@
  */
 package androidx.media3.common;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.lang.Math.max;
 import static java.lang.annotation.ElementType.FIELD;
 import static java.lang.annotation.ElementType.LOCAL_VARIABLE;
 import static java.lang.annotation.ElementType.METHOD;
@@ -60,7 +62,17 @@ import java.util.Objects;
  *       same thread.
  *   <li>The available functionality can be limited. Player instances provide a set of {@link
  *       #getAvailableCommands() available commands} to signal feature support and users of the
- *       interface must only call methods if the corresponding {@link Command} is available.
+ *       interface must only call methods if the corresponding {@link Command} is available. An
+ *       implementation has some flexibility in how to handle a call to a method when the
+ *       corresponding command is not available. Options include (non-exhaustive):
+ *       <ul>
+ *         <li>Do nothing (for a void method), or return an 'unset' or 'default' value.
+ *         <li>Throw an exception.
+ *         <li>Perform the requested operation anyway.
+ *         <li>Perform some 'default' version of the requested operation (e.g. {@link #seekTo(long)}
+ *             may trigger {@link #seekToDefaultPosition()} if called when {@link
+ *             #COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM} is not available).
+ *       </ul>
  *   <li>Users can register {@link Player.Listener} callbacks that get informed about state changes.
  *   <li>Player instances need to update the visible state immediately after each method call, even
  *       if the actual changes are handled on background threads or even other devices. This
@@ -204,6 +216,16 @@ public interface Player {
       return flags.containsAny(events);
     }
 
+    /**
+     * Returns whether any of the given {@link Player.Events} occurred.
+     *
+     * @param events The {@link Player.Events}.
+     * @return Whether any of the {@link Player.Events} occurred.
+     */
+    public boolean containsAny(Player.Events events) {
+      return flags.containsAny(events.flags);
+    }
+
     /** Returns the number of events in the set. */
     public int size() {
       return flags.size();
@@ -330,6 +352,8 @@ public interface Player {
         long contentPositionMs,
         int adGroupIndex,
         int adIndexInAdGroup) {
+      checkArgument(mediaItemIndex >= 0);
+      checkArgument(periodIndex >= 0);
       this.windowUid = windowUid;
       this.windowIndex = mediaItemIndex;
       this.mediaItemIndex = mediaItemIndex;
@@ -488,11 +512,11 @@ public interface Player {
     /** Restores a {@code PositionInfo} from a {@link Bundle}. */
     @UnstableApi
     public static PositionInfo fromBundle(Bundle bundle) {
-      int mediaItemIndex = bundle.getInt(FIELD_MEDIA_ITEM_INDEX, /* defaultValue= */ 0);
+      int mediaItemIndex = max(0, bundle.getInt(FIELD_MEDIA_ITEM_INDEX, /* defaultValue= */ 0));
       @Nullable Bundle mediaItemBundle = bundle.getBundle(FIELD_MEDIA_ITEM);
       @Nullable
       MediaItem mediaItem = mediaItemBundle == null ? null : MediaItem.fromBundle(mediaItemBundle);
-      int periodIndex = bundle.getInt(FIELD_PERIOD_INDEX, /* defaultValue= */ 0);
+      int periodIndex = max(0, bundle.getInt(FIELD_PERIOD_INDEX, /* defaultValue= */ 0));
       long positionMs = bundle.getLong(FIELD_POSITION_MS, /* defaultValue= */ 0);
       long contentPositionMs = bundle.getLong(FIELD_CONTENT_POSITION_MS, /* defaultValue= */ 0);
       int adGroupIndex = bundle.getInt(FIELD_AD_GROUP_INDEX, /* defaultValue= */ C.INDEX_UNSET);
@@ -2106,6 +2130,8 @@ public interface Player {
    *   <li>{@link #clearVideoSurfaceHolder(SurfaceHolder)}
    *   <li>{@link #setVideoSurfaceView(SurfaceView)}
    *   <li>{@link #clearVideoSurfaceView(SurfaceView)}
+   *   <li>{@link #setVideoTextureView(TextureView)}
+   *   <li>{@link #clearVideoTextureView(TextureView)}
    * </ul>
    */
   int COMMAND_SET_VIDEO_SURFACE = 27;
@@ -3197,6 +3223,16 @@ public interface Player {
   AudioAttributes getAudioAttributes();
 
   /**
+   * Returns the audio session identifier, or {@link C#AUDIO_SESSION_ID_UNSET} if not set.
+   *
+   * @see Listener#onAudioSessionIdChanged(int)
+   */
+  @UnstableApi
+  default int getAudioSessionId() {
+    return C.AUDIO_SESSION_ID_UNSET;
+  }
+
+  /**
    * Sets the audio volume, valid values are between 0 (silence) and 1 (unity gain, signal
    * unchanged), inclusive.
    *
@@ -3218,6 +3254,25 @@ public interface Player {
    */
   @FloatRange(from = 0, to = 1.0)
   float getVolume();
+
+  /**
+   * Sets the audio volume to 0.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_VOLUME} is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi
+  void mute();
+
+  /**
+   * If the audio volume is 0, sets the audio volume to a non-zero value decided by the Player to be
+   * the most appropriate.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_VOLUME} is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi
+  void unmute();
 
   /**
    * Clears any {@link Surface}, {@link SurfaceHolder}, {@link SurfaceView} or {@link TextureView}

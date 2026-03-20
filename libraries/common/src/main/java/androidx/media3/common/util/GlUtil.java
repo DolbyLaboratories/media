@@ -19,8 +19,8 @@ import static android.opengl.EGL14.EGL_CONTEXT_CLIENT_VERSION;
 import static android.opengl.GLU.gluErrorString;
 import static android.os.Build.VERSION.SDK_INT;
 import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkState;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
@@ -41,6 +41,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.RestrictTo;
 import androidx.media3.common.C;
+import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -56,9 +57,18 @@ public final class GlUtil {
 
   /** Thrown when an OpenGL error occurs. */
   public static final class GlException extends Exception {
+    /** The OpenGL error codes if present, empty if the error is not from the OpenGL engine. */
+    public final ImmutableList<Integer> errorCodes;
+
     /** Creates an instance with the specified error message. */
     public GlException(String message) {
+      this(message, /* errorCodes= */ ImmutableList.of());
+    }
+
+    /** Creates an instance with the specified error message and error codes. */
+    public GlException(String message, List<Integer> errorCodes) {
       super(message);
+      this.errorCodes = ImmutableList.copyOf(errorCodes);
     }
   }
 
@@ -527,6 +537,7 @@ public final class GlUtil {
     StringBuilder errorMessageBuilder = new StringBuilder();
     boolean foundError = false;
     int error;
+    ImmutableList.Builder<Integer> errorCodes = new ImmutableList.Builder<>();
     while ((error = GLES20.glGetError()) != GLES20.GL_NO_ERROR) {
       if (foundError) {
         errorMessageBuilder.append('\n');
@@ -537,9 +548,10 @@ public final class GlUtil {
       }
       errorMessageBuilder.append("glError: ").append(errorString);
       foundError = true;
+      errorCodes.add(error);
     }
     if (foundError) {
-      throw new GlException(errorMessageBuilder.toString());
+      throw new GlException(errorMessageBuilder.toString(), errorCodes.build());
     }
   }
 
@@ -844,6 +856,10 @@ public final class GlUtil {
       EGL14.eglDestroyContext(eglDisplay, eglContext);
       checkEglException("Error destroying context");
     }
+  }
+
+  /** Terminates the {@link EGLDisplay} connection. */
+  public static void terminate(EGLDisplay eglDisplay) throws GlException {
     EGL14.eglReleaseThread();
     checkEglException("Error releasing thread");
     EGL14.eglTerminate(eglDisplay);
@@ -1104,7 +1120,9 @@ public final class GlUtil {
   private static void checkEglException(String errorMessage) throws GlException {
     int error = EGL14.eglGetError();
     if (error != EGL14.EGL_SUCCESS) {
-      throw new GlException(errorMessage + ", error code: 0x" + Integer.toHexString(error));
+      throw new GlException(
+          errorMessage + ", error code: 0x" + Integer.toHexString(error),
+          /* errorCodes= */ ImmutableList.of(error));
     }
   }
 }

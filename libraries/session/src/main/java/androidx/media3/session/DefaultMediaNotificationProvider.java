@@ -23,13 +23,14 @@ import static androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM;
-import static androidx.media3.common.util.Assertions.checkState;
-import static androidx.media3.common.util.Assertions.checkStateNotNull;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import androidx.annotation.DrawableRes;
@@ -41,12 +42,14 @@ import androidx.core.graphics.drawable.IconCompat;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Player;
+import androidx.media3.common.util.BitmapLoader;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.session.MediaStyleNotificationHelper.MediaStyle;
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.primitives.ImmutableIntArray;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -246,6 +249,9 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
 
   private static final String TAG = "NotificationProvider";
 
+  private static final Supplier<Integer> maxNotificationIconSize =
+      Suppliers.memoize(DefaultMediaNotificationProvider::getMaxNotificationIconSize);
+
   private final Context context;
   private final NotificationIdProvider notificationIdProvider;
   private final String channelId;
@@ -254,6 +260,8 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
 
   private @MonotonicNonNull OnBitmapLoadedFutureCallback pendingOnBitmapLoadedFutureCallback;
   @DrawableRes private int smallIconResourceId;
+  @Nullable private BitmapLoader mediaSessionBitmapLoader;
+  @Nullable private BitmapLoader notificationIconBitmapLoader;
 
   /**
    * Creates an instance. Use this constructor only when you want to override methods of this class.
@@ -281,8 +289,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
     this.channelId = channelId;
     this.channelNameResourceId = channelNameResourceId;
     notificationManager =
-        checkStateNotNull(
-            (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
+        checkNotNull((NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE));
     smallIconResourceId = R.drawable.media3_notification_small_icon;
   }
 
@@ -304,16 +311,6 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       Callback onNotificationChangedCallback) {
     ensureNotificationChannel();
 
-    ImmutableList.Builder<CommandButton> mediaButtonPreferencesWithEnabledCommandButtonsOnly =
-        new ImmutableList.Builder<>();
-    for (int i = 0; i < mediaButtonPreferences.size(); i++) {
-      CommandButton button = mediaButtonPreferences.get(i);
-      if (button.sessionCommand != null
-          && button.sessionCommand.commandCode == SessionCommand.COMMAND_CODE_CUSTOM
-          && button.isEnabled) {
-        mediaButtonPreferencesWithEnabledCommandButtonsOnly.add(mediaButtonPreferences.get(i));
-      }
-    }
     Player player = mediaSession.getPlayer();
     NotificationCompat.Builder builder = new NotificationCompat.Builder(context, channelId);
     int notificationId = notificationIdProvider.getNotificationId(mediaSession);
@@ -325,7 +322,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
             getMediaButtons(
                 mediaSession,
                 player.getAvailableCommands(),
-                mediaButtonPreferencesWithEnabledCommandButtonsOnly.build(),
+                mediaButtonPreferences,
                 !Util.shouldShowPlayButton(
                     player, mediaSession.getShowPlayButtonIfPlaybackIsSuppressed())),
             builder,
@@ -338,9 +335,20 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       builder
           .setContentTitle(getNotificationContentTitle(metadata))
           .setContentText(getNotificationContentText(metadata));
+      BitmapLoader currentMediaSessionBitmapLoader = mediaSession.getBitmapLoader();
+      if (notificationIconBitmapLoader == null
+          || !currentMediaSessionBitmapLoader.equals(mediaSessionBitmapLoader)) {
+        mediaSessionBitmapLoader = currentMediaSessionBitmapLoader;
+        notificationIconBitmapLoader =
+            new CacheBitmapLoader(
+                new SizeLimitedBitmapLoader(
+                    mediaSessionBitmapLoader,
+                    maxNotificationIconSize.get(),
+                    /* makeShared= */ true));
+      }
       @Nullable
       ListenableFuture<Bitmap> bitmapFuture =
-          mediaSession.getBitmapLoader().loadBitmapFromMetadata(metadata);
+          notificationIconBitmapLoader.loadBitmapFromMetadata(metadata);
       if (bitmapFuture != null) {
         if (pendingOnBitmapLoadedFutureCallback != null) {
           pendingOnBitmapLoadedFutureCallback.discardIfPending();
@@ -455,10 +463,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
 
     ImmutableList.Builder<CommandButton> commandButtons = new ImmutableList.Builder<>();
     if (hasCustomBackButton) {
-      commandButtons.add(
-          customLayout
-              .get(nextCustomLayoutIndex++)
-              .copyWithSlots(ImmutableIntArray.of(CommandButton.SLOT_BACK)));
+      commandButtons.add(customLayout.get(nextCustomLayoutIndex++));
     } else if (playerCommands.containsAny(
         COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)) {
       commandButtons.add(
@@ -484,10 +489,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       }
     }
     if (hasCustomForwardButton) {
-      commandButtons.add(
-          customLayout
-              .get(nextCustomLayoutIndex++)
-              .copyWithSlots(ImmutableIntArray.of(CommandButton.SLOT_FORWARD)));
+      commandButtons.add(customLayout.get(nextCustomLayoutIndex++));
     } else if (playerCommands.containsAny(COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)) {
       commandButtons.add(
           new CommandButton.Builder(CommandButton.ICON_NEXT)
@@ -496,8 +498,7 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
               .build());
     }
     for (int i = nextCustomLayoutIndex; i < customLayout.size(); i++) {
-      commandButtons.add(
-          customLayout.get(i).copyWithSlots(ImmutableIntArray.of(CommandButton.SLOT_OVERFLOW)));
+      commandButtons.add(customLayout.get(i));
     }
     return commandButtons.build();
   }
@@ -637,6 +638,18 @@ public class DefaultMediaNotificationProvider implements MediaNotification.Provi
       return System.currentTimeMillis() - player.getContentPosition();
     } else {
       return C.TIME_UNSET;
+    }
+  }
+
+  @SuppressWarnings("DiscouragedApi") // Using Resources.getIdentifier() to access system property
+  private static int getMaxNotificationIconSize() {
+    Resources res = Resources.getSystem();
+    try {
+      int id = res.getIdentifier("notification_right_icon_size", "dimen", "android");
+      return res.getDimensionPixelSize(id);
+    } catch (Resources.NotFoundException e) {
+      // Fallback to assumed icon size of 48dp if the system property is missing.
+      return (int) (48 * res.getDisplayMetrics().density);
     }
   }
 

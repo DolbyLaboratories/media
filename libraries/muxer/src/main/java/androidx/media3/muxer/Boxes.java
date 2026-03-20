@@ -16,10 +16,10 @@
 package androidx.media3.muxer;
 
 import static androidx.media3.common.MimeTypes.allSamplesAreSyncSamples;
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
-import static androidx.media3.common.util.Assertions.checkState;
 import static androidx.media3.muxer.MuxerUtil.UNSIGNED_INT_MAX_VALUE;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
@@ -36,7 +36,6 @@ import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.Util;
-import androidx.media3.container.DolbyVisionConfig;
 import androidx.media3.container.MdtaMetadataEntry;
 import androidx.media3.container.Mp4LocationData;
 import androidx.media3.container.NalUnitUtil;
@@ -1406,7 +1405,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     contents.put((byte) 0x01); // configurationVersion
 
     ImmutableList<ByteBuffer> csd0NalUnits = AnnexBUtils.findNalUnits(csd0ByteBuffer);
-    checkArgument(csd0NalUnits.size() == 1, "SPS data not found in csd0 for avcC box.");
+    // TODO: b/436789610 - Handle more than one SPS data.
+    checkArgument(!csd0NalUnits.isEmpty(), "SPS data not found in csd0 for avcC box.");
 
     ByteBuffer sps = csd0NalUnits.get(0);
     byte[] spsData = new byte[sps.remaining()];
@@ -1426,7 +1426,8 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     sps.rewind();
 
     ImmutableList<ByteBuffer> csd1NalUnits = AnnexBUtils.findNalUnits(csd1ByteBuffer);
-    checkState(csd1NalUnits.size() == 1, "PPS data not found in csd1.");
+    // TODO: b/436789610 - Handle more than one PPS data.
+    checkState(!csd1NalUnits.isEmpty(), "PPS data not found in csd1 for avcC box.");
 
     contents.put((byte) 0x01); // numOfPictureParameterSets
 
@@ -1537,10 +1538,10 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   private static ByteBuffer apvCBox(Format format) {
     // For APV, the entire codec-specific box is packed into csd-0.
     checkArgument(
-        !format.initializationData.isEmpty(), "csd-0 is not found in the format for avpC box");
+        !format.initializationData.isEmpty(), "csd-0 is not found in the format for apvC box");
 
     byte[] csd0 = format.initializationData.get(0);
-    checkArgument(csd0.length > 0, "csd-0 is empty for avpC box.");
+    checkArgument(csd0.length > 0, "csd-0 is empty for apvC box.");
 
     int versionAndFlags = 0;
     ByteBuffer apvcBoxContent = ByteBuffer.allocate(csd0.length + BYTES_PER_INTEGER);
@@ -1562,28 +1563,24 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
   /** Returns a dvcC/dvwC/dvvC vision box which will be included in dolby vision box. */
   private static ByteBuffer doviBox(int profile, byte[] csd) {
     checkArgument(csd.length > 0, "csd is empty for dovi box.");
-    if (profile <= 7) {
+    if (profile == 5) {
       return BoxUtils.wrapIntoBox("dvcC", ByteBuffer.wrap(csd));
-    } else if (profile <= 10) {
+    } else if (profile == 8 || profile == 9) {
       return BoxUtils.wrapIntoBox("dvvC", ByteBuffer.wrap(csd));
-    } else if (profile <= 19) {
-      return BoxUtils.wrapIntoBox("dvwC", ByteBuffer.wrap(csd));
-    } else if (profile == 20) {
-      return BoxUtils.wrapIntoBox("dvcC", ByteBuffer.wrap(csd));
     } else {
-      return BoxUtils.wrapIntoBox("dvwC", ByteBuffer.wrap(csd));
+      throw new IllegalArgumentException("Unsupported Dolby Vision profile " + profile);
     }
   }
 
   /** Returns a dolby vision box as per Dolby Vision ISO media format. */
   private static ByteBuffer doviSpecificBox(Format format) {
-    checkArgument(
-        !format.initializationData.isEmpty(), "csd is not found in the format for dolby vision");
-    byte[] dolbyVisionCsd = Iterables.getLast(format.initializationData);
-    DolbyVisionConfig dolbyVisionConfig = getDolbyVisionConfig(format);
-    checkNotNull(dolbyVisionConfig, "Dolby vision codec is not supported.");
-    ByteBuffer avcHevcBox = dolbyVisionConfig.profile <= 8 ? hvcCBox(format) : avcCBox(format);
-    ByteBuffer dolbyBox = doviBox(dolbyVisionConfig.profile, dolbyVisionCsd);
+    @Nullable Pair<Integer, Integer> profileAndLevel = getDolbyVisionProfileAndLevel(format);
+    checkNotNull(profileAndLevel, "Can't identify Dolby vision profile");
+    ByteBuffer avcHevcBox = profileAndLevel.first <= 8 ? hvcCBox(format) : avcCBox(format);
+    byte[] dolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(
+            profileAndLevel.first, profileAndLevel.second);
+    ByteBuffer dolbyBox = doviBox(profileAndLevel.first, dolbyVisionCsd);
     return BoxUtils.concatenateBuffers(avcHevcBox, dolbyBox);
   }
 
@@ -1730,30 +1727,11 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     return BoxUtils.wrapIntoBox("colr", contents);
   }
 
-  @Nullable
-  private static DolbyVisionConfig getDolbyVisionConfig(Format format) {
-    @Nullable
-    DolbyVisionConfig dolbyVisionConfig =
-        DolbyVisionConfig.parse(
-            new ParsableByteArray(Iterables.getLast(format.initializationData)));
-    if (dolbyVisionConfig == null && format.codecs != null) {
-      Pair<Integer, Integer> profileAndLevel = getDolbyVisionProfileAndLevel(format);
-      checkNotNull(profileAndLevel, "Dolby Vision profile and level is not found.");
-      byte[] dolbyVisionCsd =
-          CodecSpecificDataUtil.buildDolbyVisionInitializationData(
-              /* profile= */ profileAndLevel.first, /* level= */ profileAndLevel.second);
-      dolbyVisionConfig = DolbyVisionConfig.parse(new ParsableByteArray(dolbyVisionCsd));
-    }
-    return dolbyVisionConfig;
-  }
-
   /** Returns codec specific fourcc for Dolby vision. */
   private static String getDoviFourcc(Format format) {
-    @Nullable DolbyVisionConfig dolbyVisionConfig = getDolbyVisionConfig(format);
-    checkNotNull(
-        dolbyVisionConfig,
-        "Dolby Vision Initialization data is not found for format: %s" + format.sampleMimeType);
-    switch (dolbyVisionConfig.profile) {
+    Pair<Integer, Integer> profileAndLevel = getDolbyVisionProfileAndLevel(format);
+    checkNotNull(profileAndLevel, "Dolby Vision profile and level is not found.");
+    switch (profileAndLevel.first) {
       case 5:
         return "dvh1";
       case 8:
@@ -1763,7 +1741,7 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
       default:
         throw new IllegalArgumentException(
             "Unsupported profile "
-                + dolbyVisionConfig.profile
+                + profileAndLevel.first
                 + " for format: "
                 + format.sampleMimeType);
     }
@@ -1822,7 +1800,9 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     String mimeType = checkNotNull(format.sampleMimeType);
     boolean isVorbis = mimeType.equals(MimeTypes.AUDIO_VORBIS);
     ByteBuffer csdByteBuffer =
-        isVorbis ? getVorbisInitializationData(format) : ByteBuffer.wrap(csd0);
+        isVorbis
+            ? CodecSpecificDataUtil.getVorbisInitializationData(format)
+            : ByteBuffer.wrap(csd0);
 
     int peakBitrate = format.peakBitrate;
     int averageBitrate = format.averageBitrate;
@@ -1889,35 +1869,6 @@ import org.checkerframework.checker.nullness.qual.PolyNull;
     }
     sizeBuffer.flip();
     return sizeBuffer;
-  }
-
-  /* Returns csd wrapped in ByteBuffer in vorbis codec initialization data format. */
-  private static ByteBuffer getVorbisInitializationData(Format format) {
-    checkArgument(
-        format.initializationData.size() > 1, "csd-1 should contain setup header for Vorbis.");
-    byte[] csd0 = format.initializationData.get(0); // identification Header
-
-    // csd0Size is represented using "Xiph lacing" style.
-    // The lacing size is split into 255 values, stored as unsigned octets – for example, 500 is
-    // coded 255;245 or [0xFF 0xF5]. A frame with a size multiple of 255 is coded with a 0 at the
-    // end of the size – for example, 765 is coded 255;255;255;0 or [0xFF 0xFF 0xFF 0x00].
-    byte[] csd0Size = new byte[csd0.length / 255 + 1];
-    Arrays.fill(csd0Size, (byte) 0xFF);
-    csd0Size[csd0Size.length - 1] = (byte) (csd0.length % 255);
-
-    byte[] csd1 = format.initializationData.get(1); // setUp Header
-    checkArgument(csd1.length > 0, "csd-1 should be present and contain setup header for Vorbis.");
-
-    // Add 2 bytes - 1 for Vorbis audio and 1 for comment header length.
-    ByteBuffer csd = ByteBuffer.allocate(csd0Size.length + csd0.length + csd1.length + 2);
-    csd.put((byte) 0x02); // Vorbis audio
-    csd.put(csd0Size); // Size of identification header
-    csd.put((byte) 0); // Length of comment header
-    csd.put(csd0);
-    csd.put(csd1);
-    csd.flip();
-
-    return csd;
   }
 
   /** Returns the audio damr box. */

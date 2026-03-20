@@ -15,13 +15,14 @@
  */
 package androidx.media3.session;
 
+import static androidx.media3.common.util.Util.convertToNullIfInvalid;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.os.Bundle;
 import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.PlaybackException;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import java.lang.annotation.Documented;
@@ -205,7 +206,7 @@ public final class SessionError {
    * @throws IllegalArgumentException if the result code is not an error result code.
    */
   public SessionError(@SessionError.Code int code, String message, Bundle extras) {
-    Assertions.checkArgument(code < 0 || code == INFO_CANCELLED);
+    checkArgument(code < 0 || code == INFO_CANCELLED);
     this.code = code;
     this.message = message;
     this.extras = extras;
@@ -251,7 +252,7 @@ public final class SessionError {
     int code =
         bundle.getInt(FIELD_CODE, /* defaultValue= */ PlaybackException.ERROR_CODE_UNSPECIFIED);
     String message = bundle.getString(FIELD_MESSAGE, /* defaultValue= */ "");
-    @Nullable Bundle extras = bundle.getBundle(FIELD_EXTRAS);
+    @Nullable Bundle extras = convertToNullIfInvalid(bundle.getBundle(FIELD_EXTRAS));
     return new SessionError(code, message, extras == null ? Bundle.EMPTY : extras);
   }
 }

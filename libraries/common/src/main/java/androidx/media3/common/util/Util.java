@@ -33,12 +33,14 @@ import static androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS;
 import static androidx.media3.common.Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM;
-import static androidx.media3.common.util.Assertions.checkArgument;
-import static androidx.media3.common.util.Assertions.checkNotNull;
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkNotNull;
+import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.abs;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.nio.ByteOrder.LITTLE_ENDIAN;
+import static java.nio.charset.StandardCharsets.US_ASCII;
 
 import android.Manifest.permission;
 import android.annotation.SuppressLint;
@@ -68,6 +70,7 @@ import android.media.MediaCodec;
 import android.media.MediaDrm;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Parcel;
@@ -82,7 +85,6 @@ import android.util.SparseLongArray;
 import android.view.Display;
 import android.view.SurfaceView;
 import android.view.WindowManager;
-import androidx.annotation.ChecksSdkIntAtLeast;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
@@ -100,6 +102,8 @@ import androidx.media3.common.Player.Commands;
 import androidx.media3.common.audio.AudioManagerCompat;
 import androidx.media3.common.audio.AudioProcessor;
 import com.google.common.base.Ascii;
+import com.google.common.base.Preconditions;
+import com.google.common.io.BaseEncoding;
 import com.google.common.io.ByteStreams;
 import com.google.common.math.DoubleMath;
 import com.google.common.math.LongMath;
@@ -110,6 +114,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.MoreExecutors;
 import com.google.common.util.concurrent.SettableFuture;
+import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.InlineMe;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -190,9 +195,9 @@ public final class Util {
   private static final String TAG = "Util";
   private static final Pattern XS_DATE_TIME_PATTERN =
       Pattern.compile(
-          "(\\d\\d\\d\\d)\\-(\\d\\d)\\-(\\d\\d)[Tt]"
+          "(\\d\\d\\d\\d)\\-(\\d\\d)\\-(\\d\\d)[Tt ]"
               + "(\\d\\d):(\\d\\d):(\\d\\d)([\\.,](\\d+))?"
-              + "([Zz]|((\\+|\\-)(\\d?\\d):?(\\d\\d)))?");
+              + "([Zz]|((\\+|\\-)(\\d?\\d):?(\\d\\d)?))?");
   private static final Pattern XS_DURATION_PATTERN =
       Pattern.compile(
           "^(-)?P(([0-9]*)Y)?(([0-9]*)M)?(([0-9]*)D)?"
@@ -353,9 +358,6 @@ public final class Util {
    */
   public static boolean maybeRequestReadStoragePermission(
       Activity activity, MediaItem... mediaItems) {
-    if (Build.VERSION.SDK_INT < 23) {
-      return false;
-    }
     for (MediaItem mediaItem : mediaItems) {
       if (mediaItem.localConfiguration == null) {
         continue;
@@ -385,12 +387,7 @@ public final class Util {
     }
   }
 
-  @ChecksSdkIntAtLeast(api = 23)
   private static boolean isReadStoragePermissionRequestNeeded(Activity activity, Uri uri) {
-    if (Build.VERSION.SDK_INT < 23) {
-      // Permission automatically granted via manifest below API 23.
-      return false;
-    }
     if (isLocalFileUri(uri)) {
       return !isAppSpecificStorageFileUri(activity, uri);
     }
@@ -607,7 +604,7 @@ public final class Util {
   /**
    * Casts a nullable variable to a non-null variable without runtime null check.
    *
-   * <p>Use {@link Assertions#checkNotNull(Object)} to throw if the value is null.
+   * <p>Use {@link Preconditions#checkNotNull(Object)} to throw if the value is null.
    */
   @UnstableApi
   @SuppressWarnings({"nullness:contracts.postcondition", "nullness:return"})
@@ -701,7 +698,7 @@ public final class Util {
   @UnstableApi
   @SuppressWarnings("nullness:toArray.nullable.elements.not.newarray")
   public static <T> void nullSafeListToArray(List<T> list, T[] array) {
-    Assertions.checkState(list.size() == array.length);
+    checkState(list.size() == array.length);
     list.toArray(array);
   }
 
@@ -730,7 +727,7 @@ public final class Util {
   @UnstableApi
   public static Handler createHandlerForCurrentLooper(
       @Nullable Handler.@UnknownInitialization Callback callback) {
-    return createHandler(Assertions.checkStateNotNull(Looper.myLooper()), callback);
+    return createHandler(checkNotNull(Looper.myLooper()), callback);
   }
 
   /**
@@ -794,6 +791,29 @@ public final class Util {
    */
   @UnstableApi
   public static boolean postOrRun(Handler handler, Runnable runnable) {
+    Looper looper = handler.getLooper();
+    if (!looper.getThread().isAlive()) {
+      return false;
+    }
+    if (looper == Looper.myLooper()) {
+      runnable.run();
+      return true;
+    } else {
+      return handler.post(runnable);
+    }
+  }
+
+  /**
+   * Posts the {@link Runnable} if the calling thread differs with the {@link Looper} of the {@link
+   * HandlerWrapper}. Otherwise, runs the {@link Runnable} directly.
+   *
+   * @param handler The {@link HandlerWrapper} to which the {@link Runnable} will be posted.
+   * @param runnable The runnable to either post or run.
+   * @return {@code true} if the {@link Runnable} was successfully posted to the {@link
+   *     HandlerWrapper} or run. {@code false} otherwise.
+   */
+  @UnstableApi
+  public static boolean postOrRun(HandlerWrapper handler, Runnable runnable) {
     Looper looper = handler.getLooper();
     if (!looper.getThread().isAlive()) {
       return false;
@@ -1199,12 +1219,11 @@ public final class Util {
    */
   @UnstableApi
   public static long addWithOverflowDefault(long x, long y, long overflowResult) {
-    long result = x + y;
-    // See Hacker's Delight 2-13 (H. Warren Jr).
-    if (((x ^ result) & (y ^ result)) < 0) {
-      return overflowResult;
-    }
-    return result;
+    long result = LongMath.saturatedAdd(x, y);
+    return (result == Long.MIN_VALUE && x + y != Long.MIN_VALUE)
+            || (result == Long.MAX_VALUE && x + y != Long.MAX_VALUE)
+        ? overflowResult
+        : result;
   }
 
   /**
@@ -1217,17 +1236,19 @@ public final class Util {
    */
   @UnstableApi
   public static long subtractWithOverflowDefault(long x, long y, long overflowResult) {
-    long result = x - y;
-    // See Hacker's Delight 2-13 (H. Warren Jr).
-    if (((x ^ y) & (x ^ result)) < 0) {
-      return overflowResult;
-    }
-    return result;
+    long result = LongMath.saturatedSubtract(x, y);
+    return (result == Long.MIN_VALUE && x - y != Long.MIN_VALUE)
+            || (result == Long.MAX_VALUE && x - y != Long.MAX_VALUE)
+        ? overflowResult
+        : result;
   }
 
   /**
    * Returns the integer percentage of {@code numerator} divided by {@code denominator}. This uses
    * integer arithmetic (round down).
+   *
+   * <p>The result is cast from {@code long} to {@code int} following the rules of {@link
+   * Ints#saturatedCast(long)}.
    */
   @UnstableApi
   public static int percentInt(long numerator, long denominator) {
@@ -1236,7 +1257,7 @@ public final class Util {
         numeratorTimes100 != Long.MAX_VALUE && numeratorTimes100 != Long.MIN_VALUE
             ? numeratorTimes100 / denominator
             : (numerator / (denominator / 100));
-    return Ints.checkedCast(result);
+    return Ints.saturatedCast(result);
   }
 
   /**
@@ -1695,6 +1716,10 @@ public final class Util {
    * Parses an xs:dateTime attribute value, returning the parsed timestamp in milliseconds since the
    * epoch.
    *
+   * <p>The parsing implemented here is deliberately more tolerant than the <a
+   * href="https://www.w3.org/TR/xmlschema-2/#dateTime">XML spec</a> allows, as this method is also
+   * used to parse ISO 8601 and RFC 3339 date-time strings.
+   *
    * @param value The attribute value to decode.
    * @return The parsed timestamp in milliseconds since the epoch.
    * @throws ParserException if an error occurs parsing the dateTime attribute value.
@@ -1717,8 +1742,11 @@ public final class Util {
     } else if (matcher.group(9).equalsIgnoreCase("Z")) {
       timezoneShift = 0;
     } else {
-      timezoneShift =
-          ((Integer.parseInt(matcher.group(12)) * 60 + Integer.parseInt(matcher.group(13))));
+      timezoneShift = Integer.parseInt(matcher.group(12)) * 60;
+      String timezoneOffsetMinutes = matcher.group(13);
+      if (timezoneOffsetMinutes != null) {
+        timezoneShift += Integer.parseInt(timezoneOffsetMinutes);
+      }
       if ("-".equals(matcher.group(11))) {
         timezoneShift *= -1;
       }
@@ -2061,15 +2089,7 @@ public final class Util {
    */
   @UnstableApi
   public static byte[] getBytesFromHexString(String hexString) {
-    byte[] data = new byte[hexString.length() / 2];
-    for (int i = 0; i < data.length; i++) {
-      int stringOffset = i * 2;
-      data[i] =
-          (byte)
-              ((Character.digit(hexString.charAt(stringOffset), 16) << 4)
-                  + Character.digit(hexString.charAt(stringOffset + 1), 16));
-    }
-    return data;
+    return BaseEncoding.base16().ignoreCase().decode(hexString);
   }
 
   /**
@@ -2080,13 +2100,12 @@ public final class Util {
    */
   @UnstableApi
   public static String toHexString(byte[] bytes) {
-    StringBuilder result = new StringBuilder(bytes.length * 2);
-    for (int i = 0; i < bytes.length; i++) {
-      result
-          .append(Character.forDigit((bytes[i] >> 4) & 0xF, 16))
-          .append(Character.forDigit(bytes[i] & 0xF, 16));
-    }
-    return result.toString();
+    return BaseEncoding.base16().lowerCase().encode(bytes);
+  }
+
+  @UnstableApi
+  public static String toFourccString(int fourcc) {
+    return new String(Ints.toByteArray(fourcc), US_ASCII);
   }
 
   /**
@@ -2335,6 +2354,38 @@ public final class Util {
         }
       case 12:
         return AudioFormat.CHANNEL_OUT_7POINT1POINT4;
+      case 13:
+        if (Build.VERSION.SDK_INT >= 32) {
+          // TODO(b/238402306): Replace with the public AudioFormat.CHANNEL_OUT_13POINT0 constant
+          // once it is released.
+          return AudioFormat.CHANNEL_OUT_FRONT_LEFT
+              | AudioFormat.CHANNEL_OUT_FRONT_CENTER
+              | AudioFormat.CHANNEL_OUT_FRONT_RIGHT
+              | AudioFormat.CHANNEL_OUT_SIDE_LEFT
+              | AudioFormat.CHANNEL_OUT_SIDE_RIGHT
+              | AudioFormat.CHANNEL_OUT_TOP_FRONT_LEFT
+              | AudioFormat.CHANNEL_OUT_TOP_FRONT_CENTER
+              | AudioFormat.CHANNEL_OUT_TOP_FRONT_RIGHT
+              | AudioFormat.CHANNEL_OUT_TOP_BACK_LEFT
+              | AudioFormat.CHANNEL_OUT_TOP_BACK_RIGHT
+              | AudioFormat.CHANNEL_OUT_BOTTOM_FRONT_LEFT
+              | AudioFormat.CHANNEL_OUT_BOTTOM_FRONT_CENTER
+              | AudioFormat.CHANNEL_OUT_BOTTOM_FRONT_RIGHT;
+        } else {
+          return AudioFormat.CHANNEL_INVALID;
+        }
+      case 14:
+        if (Build.VERSION.SDK_INT >= 32) {
+          return AudioFormat.CHANNEL_OUT_9POINT1POINT4;
+        } else {
+          return AudioFormat.CHANNEL_INVALID;
+        }
+      case 16:
+        if (Build.VERSION.SDK_INT >= 32) {
+          return AudioFormat.CHANNEL_OUT_9POINT1POINT6;
+        } else {
+          return AudioFormat.CHANNEL_INVALID;
+        }
       case 24:
         if (Build.VERSION.SDK_INT >= 32) {
           return AudioFormat.CHANNEL_OUT_7POINT1POINT4
@@ -2536,14 +2587,15 @@ public final class Util {
   }
 
   /**
-   * Returns a newly generated audio session identifier, or {@link AudioManager#ERROR} if an error
-   * occurred in which case audio playback may fail.
+   * Returns a newly generated audio session identifier, or {@link C#AUDIO_SESSION_ID_UNSET} if
+   * failed to generate an identifier and in which case audio playback may fail.
    *
    * @see AudioManager#generateAudioSessionId()
    */
   @UnstableApi
   public static int generateAudioSessionIdV21(Context context) {
-    return AudioManagerCompat.getAudioManager(context).generateAudioSessionId();
+    int audioSessionId = AudioManagerCompat.getAudioManager(context).generateAudioSessionId();
+    return audioSessionId != AudioManager.ERROR ? audioSessionId : C.AUDIO_SESSION_ID_UNSET;
   }
 
   /**
@@ -2787,6 +2839,19 @@ public final class Util {
     return hours > 0
         ? formatter.format("%s%d:%02d:%02d", prefix, hours, minutes, seconds).toString()
         : formatter.format("%s%02d:%02d", prefix, minutes, seconds).toString();
+  }
+
+  /**
+   * Returns the specified millisecond time formatted as a string.
+   *
+   * @param timeMs The time to format as a string, in milliseconds.
+   * @return The time formatted as a string.
+   */
+  @UnstableApi
+  public static String getStringForTime(long timeMs) {
+    StringBuilder builder = new StringBuilder();
+    Formatter formatter = new Formatter(builder, Locale.getDefault());
+    return getStringForTime(builder, formatter, timeMs);
   }
 
   /**
@@ -3198,8 +3263,7 @@ public final class Util {
    */
   @UnstableApi
   public static boolean isAutomotive(Context context) {
-    return Build.VERSION.SDK_INT >= 23
-        && context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE);
+    return context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUTOMOTIVE);
   }
 
   /**
@@ -3303,11 +3367,7 @@ public final class Util {
     }
 
     Point displaySize = new Point();
-    if (Build.VERSION.SDK_INT >= 23) {
-      getDisplaySizeV23(display, displaySize);
-    } else {
-      display.getRealSize(displaySize);
-    }
+    getDisplaySize(display, displaySize);
     return displaySize;
   }
 
@@ -3511,7 +3571,8 @@ public final class Util {
   public static void putInt24(ByteBuffer buffer, int value) {
     checkArgument(
         (value & ~0xffffff) == 0 || (value & ~0x7fffff) == 0xff800000,
-        "Value out of range of 24-bit integer: " + Integer.toHexString(value));
+        "Value out of range of 24-bit integer: %s",
+        Integer.toHexString(value));
     checkArgument(buffer.remaining() >= 3);
     byte component1 =
         buffer.order() == ByteOrder.BIG_ENDIAN
@@ -3655,7 +3716,7 @@ public final class Util {
       case C.FORMAT_UNSUPPORTED_DRM:
         return "NO_UNSUPPORTED_DRM";
       case C.FORMAT_UNSUPPORTED_SUBTYPE:
-        return "NO_UNSUPPORTED_TYPE";
+        return "NO_UNSUPPORTED_SUBTYPE";
       case C.FORMAT_UNSUPPORTED_TYPE:
         return "NO";
       default:
@@ -3720,7 +3781,7 @@ public final class Util {
    * Returns a {@link Drawable} for the given resource or throws a {@link
    * Resources.NotFoundException} if not found.
    *
-   * @param context The context to get the theme from starting with API 21.
+   * @param context The context to get the theme from.
    * @param resources The resources to load the drawable from.
    * @param drawableRes The drawable resource int.
    * @return The loaded {@link Drawable}.
@@ -3875,6 +3936,35 @@ public final class Util {
     }
   }
 
+  /**
+   * Converts the provided {@link Bundle} to {@code null} if it is invalid.
+   *
+   * <p>Typical reasons for why the validation may fail are {@link android.os.Parcelable} classes in
+   * this bundle that are not part of the app class loader or a corrupt internal state caused by
+   * concurrent writes.
+   *
+   * @param bundle The {@link Bundle} to verify, or null.
+   * @return The same {@link Bundle}, or null if the verification failed or the parameter is null.
+   */
+  @Nullable
+  @CheckReturnValue
+  @UnstableApi
+  public static Bundle convertToNullIfInvalid(@Nullable Bundle bundle) {
+    if (bundle == null) {
+      return null;
+    }
+    // Handle cases where the Bundle doesn't have a valid class loader. See b/110768808.
+    bundle.setClassLoader(checkNotNull(Util.class.getClassLoader()));
+    try {
+      // Force validation.
+      bundle.isEmpty();
+      return bundle;
+    } catch (RuntimeException e) {
+      Log.e(TAG, "Ignoring invalid bundle", e);
+      return null;
+    }
+  }
+
   @Nullable
   private static String getSystemProperty(String name) {
     try {
@@ -3888,8 +3978,7 @@ public final class Util {
     }
   }
 
-  @RequiresApi(23)
-  private static void getDisplaySizeV23(Display display, Point outSize) {
+  private static void getDisplaySize(Display display, Point outSize) {
     Display.Mode mode = display.getMode();
     outSize.x = mode.getPhysicalWidth();
     outSize.y = mode.getPhysicalHeight();
@@ -3931,7 +4020,6 @@ public final class Util {
     return replacedLanguages;
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.M)
   private static boolean requestExternalStoragePermission(Activity activity) {
     if (activity.checkSelfPermission(permission.READ_EXTERNAL_STORAGE)
         != PackageManager.PERMISSION_GRANTED) {
@@ -3960,7 +4048,7 @@ public final class Util {
     return false;
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
+  @RequiresApi(api = 24)
   private static boolean isTrafficRestricted(Uri uri) {
     return "http".equals(uri.getScheme())
         && !NetworkSecurityPolicy.getInstance()
